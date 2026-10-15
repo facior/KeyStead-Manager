@@ -120,6 +120,11 @@ następnie po podniesieniu `SERVER_VERSION` w `server/__init__.py`: `python tool
 
 ## 3. Po stronie użytkownika
 
+Aplikację (instalator Windows) użytkownik pobiera ze stałego linku serwera **`https://<adres-serwera>/download`** –
+podawanego przy kodach aktywacyjnych i w e-mailach. Link prowadzi do najnowszego instalatora z GitHuba albo pod adres
+ustawiony w panelu (**Ustawienia → Ogólne → Adres instalatora aplikacji**). Aplikacja sama aktualizuje się później
+do nowych, podpisanych wersji.
+
 W aplikacji: ekran logowania → zakładka **🌐 Serwer**:
 1. adres serwera (lub **🔍 Tailscale**, aby wykryć go automatycznie),
 2. kod aktywacyjny od administratora,

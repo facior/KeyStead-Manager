@@ -17,6 +17,7 @@ import hashlib
 import hmac
 import io
 import os
+import re
 import secrets
 import ssl
 import time
@@ -147,6 +148,7 @@ def create_admin_router(ctx: ServerContext) -> APIRouter:
             "request": request, "session": sess, "csrf": sess["csrf"] if sess else "",
             "is_admin": bool(sess and sess.get("role") == "admin"), "roles": ROLES,
             "server_version": SERVER_VERSION, "public_url": ctx.public_url(), "tls_fingerprint": tls_fingerprint,
+            "download_url": f"{ctx.public_url()}/download" if ctx.public_url() else "/download",
             "branding": branding,
             "update_available": latest if latest and _version_tuple(latest.get("version", "")) > _version_tuple(SERVER_VERSION) else None,
         })
@@ -433,7 +435,7 @@ def create_admin_router(ctx: ServerContext) -> APIRouter:
         url = ctx.public_url() or "(adres poda administrator)"
         body = (f"Dzień dobry {user['display_name']},\n\n"
                 f"administrator przygotował dla Ciebie dostęp do menedżera haseł KeyStead.\n\n"
-                f"1. Zainstaluj i uruchom aplikację KeyStead Manager.\n"
+                f"1. Pobierz, zainstaluj i uruchom aplikację KeyStead Manager: {ctx.download_link()}\n"
                 f"2. Na ekranie logowania wybierz zakładkę „Serwer”.\n"
                 f"3. Adres serwera: {url}\n"
                 f"4. Kod aktywacyjny: {code}  (ważny do {_fmt_time(rec['expires_at'])}, jednorazowy)\n")
@@ -752,6 +754,10 @@ def create_admin_router(ctx: ServerContext) -> APIRouter:
         except (TypeError, ValueError):
             return default
 
+    def _http_url(value) -> str:
+        value = str(value or "").strip()
+        return value if re.match(r"^https?://[^\s<>\"']+$", value) else ""
+
     @router.post("/settings/general")
     async def settings_general(request: Request):
         form = await request.form()
@@ -762,6 +768,7 @@ def create_admin_router(ctx: ServerContext) -> APIRouter:
             "max_history": _int(form.get("max_history"), 50, 1, 1000),
             "enrollment_ttl_hours": _int(form.get("enrollment_ttl_hours"), 24, 1, 720),
             "public_url": str(form.get("public_url", "")).strip().rstrip("/"),
+            "app_download_url": _http_url(form.get("app_download_url", "")),
         })
         ctx.apply_runtime_settings()
         audit.add("settings_changed", actor=actor(sess), ip=client_ip(request), section="general")

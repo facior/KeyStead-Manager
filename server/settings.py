@@ -16,6 +16,7 @@ DEFAULTS: Dict[str, Any] = {
         "max_history": 50,             # liczba przechowywanych wersji sejfu na użytkownika
         "enrollment_ttl_hours": 24,    # ważność kodów aktywacyjnych
         "public_url": "",              # nadpisuje KS_PUBLIC_URL (adres pokazywany użytkownikom)
+        "app_download_url": "",        # własny adres instalatora aplikacji; puste = najnowsze wydanie z GitHuba
     },
     # Polityki wymuszane w aplikacji KeyStead Manager każdego użytkownika
     "policy": {

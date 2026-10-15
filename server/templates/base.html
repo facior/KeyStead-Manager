@@ -131,7 +131,8 @@
       <span class="code-box">{{ flash.code }}</span><br>
       <span class="muted">Ważny do {{ flash.expires|dt }}. Użytkownik wpisuje go w aplikacji:
         ekran logowania → zakładka <b>🌐 Serwer</b>{% if public_url %} → adres <span class="mono">{{ public_url }}</span>{% endif %}.
-        Kod działa jednorazowo – na każde urządzenie wygeneruj osobny.</span>
+        Kod działa jednorazowo – na każde urządzenie wygeneruj osobny.</span><br>
+      <span class="muted">Aplikacja do pobrania: <a href="{{ download_url }}" rel="noopener noreferrer" class="mono">{{ download_url }}</a></span>
       {% if tls_fingerprint %}<br><span class="muted">Jeśli aplikacja zapyta o certyfikat serwera, jego odcisk SHA-256 to:
         <span class="mono" style="word-break:break-all">{{ tls_fingerprint }}</span></span>{% endif %}
     </div>

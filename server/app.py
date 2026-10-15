@@ -123,6 +123,13 @@ def create_app(config: Optional[ServerConfig] = None) -> FastAPI:
         return {"ETag": f'"{meta["version"]}"', "X-Vault-Version": str(meta["version"])}
 
     # ------------------------------------------------------------ publiczne
+    @app.get("/download")
+    async def download_app():
+        """Stały link dla użytkowników: przekierowanie do najnowszego instalatora aplikacji."""
+        from fastapi.responses import RedirectResponse
+        url = await asyncio.to_thread(ctx.app_download.url)
+        return RedirectResponse(url, status_code=302)
+
     @app.get(f"{API_PREFIX}/health")
     async def health():
         return {"status": "ok", "server_version": SERVER_VERSION, "server_id": store.server_id, "enrollment": True}

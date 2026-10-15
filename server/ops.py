@@ -184,6 +184,57 @@ def check_latest_release(repository: str, timeout: float = 10.0) -> Optional[Dic
     return {"version": tag.lstrip("v"), "url": data.get("html_url", ""), "published_at": data.get("published_at", "")}
 
 
+APP_TAG_PREFIX = "app-v"
+
+
+def find_app_release(repository: str, timeout: float = 10.0) -> Optional[Dict[str, str]]:
+    """Najnowsze wydanie aplikacji KeyStead Manager (tag app-vX.Y.Z) i adres jego instalatora."""
+    url = f"https://api.github.com/repos/{repository}/releases?per_page=30"
+    req = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json", "User-Agent": "KeyStead-Server"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            releases = json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        return None
+    best = None
+    for rel in releases if isinstance(releases, list) else []:
+        tag = rel.get("tag_name") or ""
+        ver = tag[len(APP_TAG_PREFIX):]
+        if rel.get("draft") or rel.get("prerelease") or not tag.startswith(APP_TAG_PREFIX) \
+                or not re.match(r"^\d+\.\d+\.\d+$", ver):
+            continue
+        setup = next((a.get("browser_download_url") for a in rel.get("assets", [])
+                      if a.get("name") == f"KeyStead-Manager-Setup-{ver}.exe"), None)
+        if setup and (best is None or _version_tuple(ver) > _version_tuple(best["version"])):
+            best = {"version": ver, "setup_url": setup, "page_url": rel.get("html_url", "")}
+    return best
+
+
+class AppDownload:
+    """Adres instalatora aplikacji dla użytkowników (ustawienie z panelu albo najnowsze wydanie z GitHuba, 1 h w pamięci)."""
+
+    def __init__(self, settings: SettingsStore, ttl: float = 3600):
+        self.settings = settings
+        self.ttl = ttl
+        self._cache: Optional[Dict[str, str]] = None
+        self._cached_at = 0.0
+        self._lock = threading.Lock()
+
+    def url(self) -> str:
+        custom = self.settings.section("general").get("app_download_url")
+        if custom:
+            return custom
+        repo = self.settings.section("updates").get("repository") or "facior/KeyStead-Manager"
+        with self._lock:
+            if time.time() - self._cached_at > self.ttl:
+                found = find_app_release(repo)
+                if found or self._cache is None:
+                    self._cache = found
+                self._cached_at = time.time()
+            cached = self._cache
+        return cached["setup_url"] if cached else f"https://github.com/{repo}/releases"
+
+
 # --------------------------------------------------------------------- stan i zadania w tle
 class OpsState:
     """Drobny stan operacyjny (ostatnia kopia, ostatnie sprawdzenie aktualizacji, alarmy)."""

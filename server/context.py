@@ -9,7 +9,7 @@ from server.accounts import AdminStore, AuditLog, EnrollmentStore, UserStore
 from server.config import ServerConfig
 from server.devices import DeviceRegistry
 from server.notify import Notifier
-from server.ops import BackgroundTasks, BackupService, OpsState, ReportStore
+from server.ops import AppDownload, BackgroundTasks, BackupService, OpsState, ReportStore
 from server.settings import SettingsStore
 from server.storage import VaultStore
 from server.updater import UpdateBridge, UpdaterPaths
@@ -34,6 +34,12 @@ class ServerContext:
     ops_state: OpsState
     tasks: BackgroundTasks
     updates: UpdateBridge = None
+    app_download: AppDownload = None
+
+    def download_link(self) -> str:
+        """Link do pobrania aplikacji podawany użytkownikom (przez serwer – działa też bez dostępu do panelu)."""
+        base = self.public_url()
+        return f"{base}/download" if base else self.app_download.url()
 
     @property
     def logo_path(self) -> str:
@@ -71,6 +77,7 @@ class ServerContext:
         ctx.notifier = Notifier(settings, ctx.server_name)
         ctx.updates = UpdateBridge(UpdaterPaths.from_env(config.data_dir))
         ctx.tasks.updates = ctx.updates
+        ctx.app_download = AppDownload(settings)
         audit.add_listener(ctx.notifier.on_audit_event)
         ctx.apply_runtime_settings()
         return ctx
