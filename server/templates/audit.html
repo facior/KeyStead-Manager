@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Dziennik zdarzeń{% endblock %}
+{% block nav_audit %}active{% endblock %}
+{% block content %}
+<h1>Dziennik zdarzeń</h1>
+<p class="sub">Ostatnie operacje administracyjne, logowania, aktywacje urządzeń i zapisy sejfów.</p>
+<div class="card">
+  {% if events %}
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Czas</th><th>Zdarzenie</th><th>Kto</th><th class="hide-sm">Adres IP</th><th>Szczegóły</th></tr></thead>
+    <tbody>
+    {% for e in events %}
+      <tr>
+        <td class="mono">{{ e.time|dt }}</td>
+        <td>{% if 'failed' in e.event or 'blocked' in e.event %}<span class="badge off">{{ e.event }}</span>{% else %}<span class="badge">{{ e.event }}</span>{% endif %}</td>
+        <td>{{ e.actor or '—' }}</td>
+        <td class="hide-sm mono">{{ e.ip or '—' }}</td>
+        <td class="muted">{% for k, v in e.items() if k not in ('time', 'event', 'actor', 'ip') %}{{ k }}={{ v }}{% if not loop.last %}, {% endif %}{% endfor %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="muted" style="margin:0">Brak zdarzeń.</p>
+  {% endif %}
+</div>
+{% endblock %}

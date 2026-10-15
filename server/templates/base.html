@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>{% block title %}Panel administratora{% endblock %} · KeyStead Server</title>
+<style>
+  :root {
+    --bg: #090d16; --panel: #111827; --card: #1a2234; --hover: #243047; --border: #2e3b52;
+    --primary: #4f46e5; --primary-h: #4338ca; --primary-l: #818cf8;
+    --ok: #10b981; --danger: #f43f5e; --warn: #f59e0b;
+    --text: #f8fafc; --muted: #94a3b8; --accent: #38bdf8;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 "Segoe UI", system-ui, -apple-system, sans-serif; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  header { background: var(--panel); border-bottom: 1px solid var(--border); }
+  .bar { max-width: 1100px; margin: 0 auto; padding: 12px 16px; display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+  .brand { font-weight: 700; font-size: 16px; color: var(--text); }
+  .brand span { color: var(--primary-l); }
+  nav { display: flex; gap: 4px; flex: 1; flex-wrap: wrap; }
+  nav a { color: var(--muted); padding: 6px 12px; border-radius: 8px; }
+  nav a:hover, nav a.active { background: var(--card); color: var(--text); text-decoration: none; }
+  main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 16px; margin: 0 0 12px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px; margin-bottom: 16px; }
+  .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-bottom: 16px; }
+  .stat { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+  .stat b { display: block; font-size: 24px; }
+  .stat span { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  td { padding: 10px; border-bottom: 1px solid var(--card); vertical-align: middle; }
+  tr:last-child td { border-bottom: 0; }
+  .table-wrap { overflow-x: auto; }
+  .muted { color: var(--muted); }
+  .mono { font-family: Consolas, "SFMono-Regular", monospace; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; background: var(--card); color: var(--muted); }
+  .badge.ok { background: rgba(16,185,129,.15); color: var(--ok); }
+  .badge.off { background: rgba(244,63,94,.15); color: var(--danger); }
+  form.inline { display: inline; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+  .field { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 180px; }
+  label { color: var(--muted); font-size: 12px; font-weight: 600; }
+  input { background: var(--card); border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: 9px 11px; font: inherit; width: 100%; }
+  input:focus { outline: 2px solid var(--primary); outline-offset: 0; border-color: var(--primary); }
+  button { background: var(--primary); color: #fff; border: 0; border-radius: 8px; padding: 9px 16px; font: inherit; font-weight: 600; cursor: pointer; white-space: nowrap; }
+  button:hover { background: var(--primary-h); }
+  button.secondary { background: var(--card); color: var(--text); border: 1px solid var(--border); }
+  button.secondary:hover { background: var(--hover); }
+  button.danger { background: var(--danger); }
+  button.small { padding: 5px 10px; font-size: 12px; }
+  button[disabled] { opacity: .45; cursor: not-allowed; }
+  .flash { border-radius: 10px; padding: 12px 16px; margin-bottom: 16px; border: 1px solid; }
+  .flash.ok { background: rgba(16,185,129,.1); border-color: rgba(16,185,129,.4); }
+  .flash.error { background: rgba(244,63,94,.1); border-color: rgba(244,63,94,.4); }
+  .flash.code { background: rgba(79,70,229,.12); border-color: var(--primary); }
+  .code-box { font-family: Consolas, monospace; font-size: 26px; letter-spacing: .12em; background: var(--bg); border: 1px dashed var(--primary-l); border-radius: 10px; padding: 12px 18px; display: inline-block; margin: 8px 0; user-select: all; }
+  .steps { margin: 6px 0 0; padding-left: 20px; color: var(--muted); }
+  .auth { max-width: 420px; margin: 8vh auto; }
+  .auth .card { padding: 26px; }
+  .auth h1 { text-align: center; }
+  .auth .sub { text-align: center; }
+  .auth form > * + * { margin-top: 12px; }
+  .auth button { width: 100%; padding: 11px; }
+  .danger-zone { border-color: rgba(244,63,94,.4); }
+  footer { text-align: center; color: var(--muted); font-size: 12px; padding: 0 16px 24px; }
+  @media (max-width: 640px) { .hide-sm { display: none; } h1 { font-size: 19px; } }
+</style>
+</head>
+<body>
+{% if session %}
+<header>
+  <div class="bar">
+    <div class="brand">🛡️ KeyStead <span>Server</span></div>
+    <nav>
+      <a href="/admin" class="{% block nav_users %}{% endblock %}">Użytkownicy</a>
+      <a href="/admin/audit" class="{% block nav_audit %}{% endblock %}">Dziennik zdarzeń</a>
+      <a href="/admin/account" class="{% block nav_account %}{% endblock %}">Moje konto</a>
+    </nav>
+    <form class="inline" method="post" action="/admin/logout">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <span class="muted hide-sm">{{ session.username }}</span>
+      <button class="secondary small" type="submit">Wyloguj</button>
+    </form>
+  </div>
+</header>
+{% endif %}
+<main>
+  {% if flash %}
+    {% if flash.kind == 'code' %}
+    <div class="flash code">
+      <b>{{ flash.text }}</b><br>
+      Kod aktywacyjny (pokazywany tylko raz):<br>
+      <span class="code-box">{{ flash.code }}</span><br>
+      <span class="muted">Ważny do {{ flash.expires|dt }}. Użytkownik wpisuje go w aplikacji:
+        ekran logowania → zakładka <b>🌐 Serwer</b>{% if public_url %} → adres <span class="mono">{{ public_url }}</span>{% endif %}.
+        Kod działa jednorazowo – na każde urządzenie wygeneruj osobny.</span>
+      {% if tls_fingerprint %}<br><span class="muted">Jeśli aplikacja zapyta o certyfikat serwera, jego odcisk SHA-256 to:
+        <span class="mono" style="word-break:break-all">{{ tls_fingerprint }}</span></span>{% endif %}
+    </div>
+    {% else %}
+    <div class="flash {{ flash.kind }}">{{ flash.text }}</div>
+    {% endif %}
+  {% endif %}
+  {% block content %}{% endblock %}
+</main>
+<footer>KeyStead Server {{ server_version }} · serwer przechowuje wyłącznie zaszyfrowane sejfy – administrator nie ma dostępu do haseł użytkowników.</footer>
+</body>
+</html>

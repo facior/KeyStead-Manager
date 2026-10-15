@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}{{ user.display_name }}{% endblock %}
+{% block nav_users %}active{% endblock %}
+{% block content %}
+<p><a href="/admin">← Użytkownicy</a></p>
+<h1>{{ user.display_name }}
+  {% if user.disabled %}<span class="badge off">zablokowane</span>{% else %}<span class="badge ok">aktywne</span>{% endif %}</h1>
+<p class="sub mono">{{ user.username }} · utworzono {{ user.created_at|dt }}{% if user.created_by %} przez {{ user.created_by }}{% endif %}</p>
+
+<div class="card">
+  <h2>📱 Dodaj urządzenie</h2>
+  <p class="muted" style="margin-top:0">Wygeneruj jednorazowy kod i przekaż go użytkownikowi. Użytkownik wpisuje go w aplikacji
+    (ekran logowania → zakładka <b>🌐 Serwer</b>). Kod jest ważny przez ograniczony czas i działa tylko raz.</p>
+  <div class="row">
+    <form method="post" action="/admin/users/{{ user.user_id }}/code" class="inline">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button type="submit" {% if user.disabled %}disabled{% endif %}>Wygeneruj kod aktywacyjny</button>
+    </form>
+    {% if codes %}
+    <form method="post" action="/admin/users/{{ user.user_id }}/codes/revoke" class="inline">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button type="submit" class="secondary">Unieważnij niewykorzystane kody ({{ codes|length }})</button>
+    </form>
+    {% endif %}
+  </div>
+  {% if codes %}
+  <p class="muted" style="margin-bottom:0">Aktywne kody: {% for c in codes %}<span class="mono">…{{ c.hint }}</span> (do {{ c.expires_at|dt }}){% if not loop.last %}, {% endif %}{% endfor %}</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>💻 Urządzenia</h2>
+  {% if devices %}
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Nazwa</th><th>Status</th><th class="hide-sm">Dodano</th><th>Ostatnio widziane</th><th></th></tr></thead>
+    <tbody>
+    {% for d in devices %}
+      <tr>
+        <td><b>{{ d.name }}</b><br><span class="muted mono">{{ d.device_id }}</span></td>
+        <td>{% if d.revoked %}<span class="badge off">odcięte</span>{% else %}<span class="badge ok">aktywne</span>{% endif %}</td>
+        <td class="hide-sm">{{ d.created_at|dt }}</td>
+        <td>{{ d.last_seen|dt }}</td>
+        <td style="text-align:right">
+          {% if not d.revoked %}
+          <form method="post" action="/admin/devices/{{ d.device_id }}/revoke" class="inline">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <button type="submit" class="secondary small">Odetnij dostęp</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="muted" style="margin:0">Brak urządzeń – wygeneruj kod aktywacyjny powyżej.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>🔐 Sejf</h2>
+  {% if meta %}
+  <p style="margin-top:0">Bieżąca wersja <b>v{{ meta.version }}</b> · {{ meta.size|size }} · zmieniono {{ meta.updated_at|dt }} z urządzenia „{{ meta.updated_by }}”.</p>
+  <p class="muted">Ostatnie wersje:
+    {% for h in history %}<span class="mono">v{{ h.version }}</span> ({{ h.updated_at|dt }}, {{ h.updated_by }}){% if not loop.last %} · {% endif %}{% endfor %}</p>
+  <p class="muted" style="margin-bottom:0">Zawartość jest zaszyfrowana hasłem głównym użytkownika – nie da się jej odczytać na serwerze.</p>
+  {% else %}
+  <p class="muted" style="margin:0">Użytkownik nie wysłał jeszcze sejfu.</p>
+  {% endif %}
+</div>
+
+<div class="card danger-zone">
+  <h2>⚠️ Strefa zagrożenia</h2>
+  <div class="row" style="align-items:flex-start">
+    <form method="post" action="/admin/users/{{ user.user_id }}/disable" class="inline">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      {% if user.disabled %}
+      <button type="submit" class="secondary">Odblokuj konto</button>
+      {% else %}
+      <button type="submit" class="secondary">Zablokuj konto (wszystkie urządzenia tracą dostęp)</button>
+      {% endif %}
+    </form>
+  </div>
+  <form method="post" action="/admin/users/{{ user.user_id }}/delete" class="row" style="margin-top:14px" autocomplete="off">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="field">
+      <label for="cf">Usuń konto, sejf i całą historię wersji – wpisz login <span class="mono">{{ user.username }}</span>, aby potwierdzić</label>
+      <input id="cf" name="confirm" required>
+    </div>
+    <button type="submit" class="danger">Usuń nieodwracalnie</button>
+  </form>
+</div>
+{% endblock %}

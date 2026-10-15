@@ -1,0 +1,117 @@
+# KeyStead Server – serwer synchronizacji
+
+Serwer przechowuje **wyłącznie zaszyfrowane sejfy** użytkowników wraz z historią wersji.
+Hasło główne nigdy nie opuszcza komputera użytkownika – ani administrator, ani ktoś, kto przejmie serwer,
+nie jest w stanie odczytać haseł.
+
+Każda firma instaluje własny serwer i sama decyduje, jak użytkownicy się z nim łączą:
+przez Tailscale, dowolny firmowy VPN (WireGuard, OpenVPN, FortiClient, Cisco…), Cloudflare Tunnel
+albo istniejący serwer pośredniczący. Serwer nie wymaga publicznego adresu IP.
+
+---
+
+## 1. Instalacja (Ubuntu 22.04 / 24.04, Debian 12)
+
+Skopiuj projekt na serwer i w jego katalogu głównym uruchom:
+
+```bash
+sudo bash server/deploy/install.sh
+```
+
+Instalator zapyta o sposób dostępu (lub podaj `--mode`):
+
+| Tryb | Dla kogo | Publiczny IP | Polecenie |
+|---|---|---|---|
+| **tailscale** | Ty / mała firma w jednej sieci Tailscale – serwer widoczny tylko dla Twoich urządzeń | nie | `--mode tailscale` |
+| **tailscale-funnel** | dostęp z dowolnego komputera przez internet (np. komputer w pracy bez Tailscale) | nie | `--mode tailscale-funnel` |
+| **cloudflare** | firma z własną domeną, dostęp z internetu | nie | `--mode cloudflare --public-url https://vault.firma.pl --cf-token <TOKEN>` |
+| **proxy** | firma z istniejącym nginx / Caddy / Traefik | — | `--mode proxy --public-url https://vault.firma.pl` |
+| **direct** | firma z własnym VPN (WireGuard, OpenVPN, FortiClient…) lub tylko sieć lokalna | nie | `--mode direct --listen 10.8.0.1` |
+
+Opcje dodatkowe:
+- `--allow-from 10.8.0.0/24` – API sejfów dostępne tylko z tej sieci (np. podsieć VPN firmy),
+- `--admin-from 10.8.0.0/24` – panel administratora tylko z tej sieci (domyślnie: sieci prywatne / VPN / Tailscale),
+- `--cert plik.crt --key plik.key` – w trybie `direct` własny certyfikat firmy zamiast samopodpisanego.
+
+Ponowne uruchomienie instalatora (np. ze zmianą trybu) aktualizuje serwer – dane, konta i tokeny zostają.
+
+### Tryby Tailscale (dla Ciebie)
+
+Wymagania: Tailscale na serwerze (`curl -fsSL https://tailscale.com/install.sh | sh && sudo tailscale up`)
+oraz w panelu https://login.tailscale.com/admin/dns włączone **MagicDNS** i **HTTPS Certificates**.
+
+- `--mode tailscale` – adres `https://<serwer>.<sieć>.ts.net`, dostępny tylko z urządzeń w Twojej sieci Tailscale.
+  W aplikacji przycisk **🔍 Tailscale** sam znajdzie serwer.
+- `--mode tailscale-funnel` – ten sam adres, ale dostępny także z internetu (komputer w pracy nie potrzebuje Tailscale).
+  Panel administratora pozostaje dostępny wyłącznie z Twojej sieci Tailscale.
+
+### Tryb direct (firmowy VPN / sieć lokalna)
+
+Serwer nasłuchuje na adresie wewnętrznym (np. adresie serwera w sieci WireGuard) z certyfikatem TLS.
+Bez własnego certyfikatu instalator generuje certyfikat samopodpisany i wypisuje jego **odcisk SHA-256**.
+Przy pierwszym połączeniu aplikacja pokaże ten odcisk do porównania i zapamięta certyfikat
+(późniejsza podmiana certyfikatu zostanie wykryta). Odcisk widać też w panelu administratora.
+
+---
+
+## 2. Panel administratora (WEB)
+
+Adres: `<adres serwera>/admin` – instalator wypisuje dokładny adres i **jednorazowy token konfiguracyjny**.
+
+1. Otwórz panel, wpisz token, ustaw login i hasło administratora (min. 12 znaków).
+2. Zeskanuj kod QR w aplikacji uwierzytelniającej (Google/Microsoft Authenticator, Aegis…) – logowanie do panelu
+   zawsze wymaga kodu 2FA.
+3. W panelu:
+   - **Użytkownicy → Nowy użytkownik** – tworzy konto i od razu pokazuje **kod aktywacyjny** (np. `K7QM-4XTP-9HRW`),
+   - **Zarządzaj** – kolejne kody (każde urządzenie osobno), lista urządzeń z możliwością odcięcia,
+     blokada konta (natychmiast odcina wszystkie urządzenia), usunięcie konta z sejfem,
+   - **Dziennik zdarzeń** – logowania, aktywacje urządzeń, zapisy sejfów, nieudane próby.
+
+Kod aktywacyjny jest jednorazowy i ważny 24 h (`KS_ENROLLMENT_TTL_HOURS`).
+
+**Zabezpieczenia panelu:** dostępny tylko z sieci z `KS_ADMIN_ALLOWED_NETWORKS` i nigdy dla ruchu z internetu
+przychodzącego przez Tailscale Funnel / Cloudflare; hasło Argon2id + obowiązkowe 2FA; blokada po 5 nieudanych
+próbach; sesja wygasa po 30 min bezczynności; ochrona CSRF; brak JavaScriptu i restrykcyjna polityka CSP.
+
+**Utrata telefonu z 2FA:** `sudo keystead-admin reset-admin`, potem `sudo keystead-admin setup-token`.
+
+---
+
+## 3. Po stronie użytkownika
+
+W aplikacji: ekran logowania → zakładka **🌐 Serwer**:
+1. adres serwera (lub **🔍 Tailscale**, aby wykryć go automatycznie),
+2. kod aktywacyjny od administratora,
+3. hasło główne sejfu.
+
+Przy pierwszym połączeniu aplikacja zaproponuje wysłanie istniejącego sejfu albo utworzenie nowego.
+Na kolejnych urządzeniach użytkownik używa nowego kodu i tego samego hasła głównego.
+Firmowe proxy jest wykrywane automatycznie z ustawień systemu.
+
+---
+
+## 4. Polecenia administracyjne (terminal serwera)
+
+| Polecenie | Opis |
+|---|---|
+| `sudo keystead-admin list-users` | użytkownicy i liczba urządzeń |
+| `sudo keystead-admin add-user jan.kowalski --name "Jan Kowalski"` | nowe konto + kod aktywacyjny |
+| `sudo keystead-admin enroll-code jan.kowalski` | nowy kod aktywacyjny |
+| `sudo keystead-admin list-devices` / `revoke-device <id>` | urządzenia / odcięcie urządzenia |
+| `sudo keystead-admin status --user jan.kowalski` | stan sejfu użytkownika |
+| `sudo keystead-admin setup-token` / `reset-admin` | konfiguracja / reset konta administratora |
+| `journalctl -u keystead -f` | logi serwera |
+
+Konfiguracja: `/etc/keystead/server.env`, po zmianie `sudo systemctl restart keystead`.
+Kopia zapasowa serwera: archiwum katalogu `/var/lib/keystead` (wyłącznie zaszyfrowane sejfy i skróty tokenów).
+
+---
+
+## 5. Bezpieczeństwo – podsumowanie
+
+- Zero-knowledge: serwer przechowuje tylko zaszyfrowane pliki; każdy użytkownik ma osobny sejf.
+- Tokeny urządzeń: 256 bitów, na serwerze tylko skrót SHA-256; w aplikacji Windows szyfrowane DPAPI.
+- Kody aktywacyjne: jednorazowe, z terminem ważności, przechowywane jako skrót.
+- Ograniczanie prób: logowanie urządzeń (20 prób / 10 min), kody aktywacyjne (10 prób / 10 min), panel (5 prób / 15 min).
+- Listy dozwolonych sieci dla API i panelu; adres klienta za serwerem pośredniczącym odczytywany tylko od zaufanych pośredników.
+- Usługa systemd z utwardzeniem (brak dostępu do reszty systemu poza katalogiem danych).

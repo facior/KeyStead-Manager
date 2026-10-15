@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Moje konto{% endblock %}
+{% block nav_account %}active{% endblock %}
+{% block content %}
+<h1>Moje konto</h1>
+<p class="sub">Administrator: <span class="mono">{{ session.username }}</span></p>
+<div class="card" style="max-width:560px">
+  <h2>Zmiana hasła</h2>
+  <form method="post" action="/admin/account/password" autocomplete="off">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="field"><label for="cur">Obecne hasło</label><input id="cur" name="current" type="password" required autocomplete="current-password"></div>
+    <div class="field" style="margin-top:10px"><label for="code">Kod 2FA</label><input id="code" name="code" required inputmode="numeric" class="mono" autocomplete="one-time-code"></div>
+    <div class="field" style="margin-top:10px"><label for="n1">Nowe hasło (min. 12 znaków)</label><input id="n1" name="new" type="password" required minlength="12" autocomplete="new-password"></div>
+    <div class="field" style="margin-top:10px"><label for="n2">Powtórz nowe hasło</label><input id="n2" name="new2" type="password" required minlength="12" autocomplete="new-password"></div>
+    <button type="submit" style="margin-top:14px">Zmień hasło</button>
+  </form>
+</div>
+<div class="card" style="max-width:560px">
+  <h2>Utrata dostępu</h2>
+  <p class="muted" style="margin:0">Jeśli zgubisz telefon z kodami 2FA, na serwerze uruchom
+    <span class="mono">sudo keystead-admin reset-admin</span>, a następnie skonfiguruj konto ponownie
+    (<span class="mono">sudo keystead-admin setup-token</span>). Sejfy użytkowników pozostają nienaruszone.</p>
+</div>
+{% endblock %}

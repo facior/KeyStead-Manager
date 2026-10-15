@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Logowanie{% endblock %}
+{% block content %}
+<div class="auth">
+  <div class="card">
+    <h1>🛡️ KeyStead Server</h1>
+    <p class="sub">Panel administratora</p>
+    {% if info %}<div class="flash ok">{{ info }}</div>{% endif %}
+    {% if error %}<div class="flash error">{{ error }}</div>{% endif %}
+    <form method="post" action="/admin/login" autocomplete="off">
+      <div class="field">
+        <label for="u">Login</label>
+        <input id="u" name="username" required value="{{ username or '' }}" autofocus>
+      </div>
+      <div class="field">
+        <label for="p">Hasło</label>
+        <input id="p" name="password" type="password" required autocomplete="current-password">
+      </div>
+      <div class="field">
+        <label for="c">Kod 2FA</label>
+        <input id="c" name="code" required inputmode="numeric" pattern="[0-9 ]{6,7}" class="mono" autocomplete="one-time-code">
+      </div>
+      <button type="submit">Zaloguj</button>
+    </form>
+  </div>
+</div>
+{% endblock %}
