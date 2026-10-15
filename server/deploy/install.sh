@@ -83,8 +83,24 @@ case "$MODE" in
         PORT=${PORT:-8443}
         if [[ -z "$LISTEN" ]]; then
             [[ -t 0 ]] || die "W trybie direct podaj --listen <adres IP serwera w sieci VPN/LAN>."
-            echo "Adresy IP tego serwera:"; ip -o -4 addr show | awk '{print "   " $2 ": " $4}'
-            read -rp "Na którym adresie ma nasłuchiwać serwer (np. 10.8.0.1): " LISTEN
+            echo "Adresy IP tego serwera:"
+            ip -o -4 addr show | awk '$2 != "lo" {split($4, a, "/"); print "   " $2 ": " a[1]}'
+            read -rp "Na którym adresie ma nasłuchiwać serwer (np. 192.168.0.10): " LISTEN
+        fi
+        # Adres bez maski sieci (lista systemowa pokazuje np. 192.168.0.78/24) i bez spacji
+        LISTEN="$(echo "$LISTEN" | tr -d '[:space:]')"
+        LISTEN="${LISTEN%%/*}"
+        if [[ "$LISTEN" =~ ^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$ ]]; then
+            for octet in "${BASH_REMATCH[@]:1}"; do
+                (( octet <= 255 )) || die "Nieprawidłowy adres IP: $LISTEN"
+            done
+            LISTEN_KIND=ip
+        elif [[ "$LISTEN" == *:* ]]; then
+            LISTEN_KIND=ip6
+        elif [[ "$LISTEN" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]]; then
+            LISTEN_KIND=dns
+        else
+            die "Nieprawidłowy adres nasłuchu: '$LISTEN' (podaj sam adres IP, np. 192.168.0.10)."
         fi
         HOST="$LISTEN" ;;
     *) die "Nieznany tryb: $MODE" ;;
@@ -115,24 +131,32 @@ install -d -m 755 "$CONF_DIR"
 TLS_CERT="" TLS_KEY="" FINGERPRINT=""
 if [[ "$MODE" == "direct" ]]; then
     install -d -m 750 -o root -g keystead "$TLS_DIR"
+    MARKER="$TLS_DIR/.generated-for"
     if [[ -n "$CERT" && -n "$KEY" ]]; then
         info "Używam dostarczonego certyfikatu"
         install -m 644 -o root -g keystead "$CERT" "$TLS_DIR/server.crt"
         install -m 640 -o root -g keystead "$KEY" "$TLS_DIR/server.key"
-    elif [[ ! -f "$TLS_DIR/server.crt" ]]; then
+        echo "provided" > "$MARKER"
+    elif [[ ! -f "$TLS_DIR/server.crt" || ( "$(cat "$MARKER" 2>/dev/null)" != "provided" && "$(cat "$MARKER" 2>/dev/null)" != "$LISTEN" ) ]]; then
+        # Brak certyfikatu albo wygenerowany dla innego adresu → nowy certyfikat samopodpisany
         info "Generuję certyfikat samopodpisany (ważny 10 lat) dla $LISTEN"
-        SAN="IP:$LISTEN,DNS:$(hostname)"
-        [[ "$LISTEN" =~ ^[0-9.]+$|: ]] || SAN="DNS:$LISTEN,DNS:$(hostname)"
+        case "$LISTEN_KIND" in
+            ip|ip6) SAN="IP:$LISTEN,DNS:$(hostname)" ;;
+            *)      SAN="DNS:$LISTEN,DNS:$(hostname)" ;;
+        esac
         openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 3650 \
             -subj "/CN=KeyStead Server" -addext "subjectAltName=$SAN" \
             -addext "extendedKeyUsage=serverAuth" \
-            -keyout "$TLS_DIR/server.key" -out "$TLS_DIR/server.crt" 2>/dev/null
+            -keyout "$TLS_DIR/server.key" -out "$TLS_DIR/server.crt" 2>/dev/null \
+            || die "Nie udało się wygenerować certyfikatu (openssl)."
         chown root:keystead "$TLS_DIR/server.key" "$TLS_DIR/server.crt"
         chmod 640 "$TLS_DIR/server.key"; chmod 644 "$TLS_DIR/server.crt"
+        echo "$LISTEN" > "$MARKER"
     fi
     TLS_CERT="$TLS_DIR/server.crt"; TLS_KEY="$TLS_DIR/server.key"
     FINGERPRINT="$(openssl x509 -in "$TLS_CERT" -noout -fingerprint -sha256 | cut -d= -f2)"
-    [[ -n "$PUBLIC_URL" ]] || PUBLIC_URL="https://$LISTEN:$PORT"
+    URL_HOST="$LISTEN"; [[ "$LISTEN_KIND" == ip6 ]] && URL_HOST="[$LISTEN]"
+    [[ -n "$PUBLIC_URL" ]] || PUBLIC_URL="https://$URL_HOST:$PORT"
 fi
 
 # ------------------------------------------------------------------ Tailscale
@@ -172,10 +196,20 @@ install -m 644 "$SRC_DIR/server/deploy/keystead.service" /etc/systemd/system/key
 systemctl daemon-reload
 systemctl enable keystead.service >/dev/null
 systemctl restart keystead.service
-sleep 2
 SCHEME=http; [[ -n "$TLS_CERT" ]] && SCHEME=https
-curl -fsSk "$SCHEME://$HOST:$PORT/api/v1/health" >/dev/null \
-    || die "Serwer nie odpowiada. Sprawdź: journalctl -u keystead -n 50"
+CHECK_HOST="$HOST"; [[ "${LISTEN_KIND:-}" == ip6 ]] && CHECK_HOST="[$HOST]"
+STARTED=0
+for _ in $(seq 1 20); do
+    if curl -fsSk --max-time 2 "$SCHEME://$CHECK_HOST:$PORT/api/v1/health" >/dev/null 2>&1; then
+        STARTED=1; break
+    fi
+    sleep 1
+done
+if [[ $STARTED -ne 1 ]]; then
+    echo "!! Serwer nie odpowiada na $SCHEME://$CHECK_HOST:$PORT – ostatnie wpisy dziennika:" >&2
+    journalctl -u keystead -n 25 --no-pager >&2 || true
+    die "Instalacja przerwana. Po poprawieniu problemu uruchom instalator ponownie."
+fi
 
 # ------------------------------------------------------------------ publikacja
 ADMIN_HINT=""
@@ -206,7 +240,14 @@ case "$MODE" in
         ADMIN_HINT="przez tunel SSH:  ssh -L 8787:127.0.0.1:$PORT <serwer>  →  http://127.0.0.1:8787/admin
      albo z sieci firmy przez serwer pośredniczący: $PUBLIC_URL/admin" ;;
     direct)
-        ADMIN_HINT="$PUBLIC_URL/admin   (z sieci: $ADMIN_FROM)" ;;
+        ADMIN_HINT="$PUBLIC_URL/admin   (z sieci lokalnej / VPN)"
+        if command -v ufw &>/dev/null && ufw status 2>/dev/null | grep -q "Status: active"; then
+            if ! ufw status | grep -qE "^$PORT(/tcp)?\s+ALLOW"; then
+                ADMIN_HINT="$ADMIN_HINT
+     ⚠️  Zapora ufw jest włączona – otwórz port dla sieci lokalnej, np.:
+         sudo ufw allow from 192.168.0.0/16 to any port $PORT proto tcp"
+            fi
+        fi ;;
 esac
 
 # ------------------------------------------------------------------ token pierwszej konfiguracji
