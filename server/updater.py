@@ -265,8 +265,8 @@ class ReleaseFetcher:
             raise UpdateError("Nieprawidłowe repozytorium w /etc/keystead/updater.env.")
         self.repository = repository
 
-    def _get(self, url: str, limit: int) -> bytes:
-        req = urllib.request.Request(url, headers={"User-Agent": "KeyStead-Updater", "Accept": "application/octet-stream"})
+    def _get(self, url: str, limit: int, accept: str = "application/octet-stream") -> bytes:
+        req = urllib.request.Request(url, headers={"User-Agent": "KeyStead-Updater", "Accept": accept})
         with urllib.request.urlopen(req, timeout=60) as resp:
             data = resp.read(limit + 1)
         if len(data) > limit:
@@ -276,7 +276,7 @@ class ReleaseFetcher:
     def fetch(self, version: str) -> Dict[str, bytes]:
         api = f"https://api.github.com/repos/{self.repository}/releases/tags/v{version}"
         try:
-            meta = json.loads(self._get(api, 2 * 1024 * 1024).decode("utf-8"))
+            meta = json.loads(self._get(api, 2 * 1024 * 1024, accept="application/vnd.github+json").decode("utf-8"))
         except UpdateError:
             raise
         except Exception as e:
