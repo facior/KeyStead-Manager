@@ -1,0 +1,9 @@
+[Unit]
+Description=KeyStead Server - oczekiwanie na prośbę o aktualizację z panelu
+
+[Path]
+PathExists=/var/lib/keystead/update/request.json
+Unit=keystead-updater.service
+
+[Install]
+WantedBy=multi-user.target

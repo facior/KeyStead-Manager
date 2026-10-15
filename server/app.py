@@ -2,33 +2,36 @@
 API HTTP serwera synchronizacji + panel WEB administratora.
 
 GET  /api/v1/health                 – stan serwera (bez autoryzacji)
-POST /api/v1/enroll                 – dołączenie urządzenia jednorazowym kodem aktywacyjnym
-GET  /api/v1/vault/meta             – metadane bieżącej wersji sejfu
+GET  /api/v1/branding               – nazwa firmy i kolor (bez autoryzacji, ekran logowania aplikacji)
+GET  /api/v1/branding/logo          – logo firmy (PNG)
+POST /api/v1/enroll                 – dołączenie urządzenia kodem aktywacyjnym (+ 2FA użytkownika, jeśli wymagane)
+POST /api/v1/account/totp/confirm   – potwierdzenie konfiguracji 2FA użytkownika
+GET  /api/v1/policy                 – polityki bezpieczeństwa firmy
+POST /api/v1/report                 – zbiorczy wynik audytu sejfu (tylko liczby)
+GET  /api/v1/vault/meta             – metadane bieżącej wersji sejfu (+ polityki i marka)
 GET  /api/v1/vault                  – zaszyfrowany plik bieżącej wersji
 PUT  /api/v1/vault                  – zapis nowej wersji (nagłówek If-Match: <wersja bazowa>)
 GET  /api/v1/vault/history          – lista zachowanych wersji
 GET  /api/v1/vault/history/{wersja} – zaszyfrowany plik wybranej wersji
 /admin                              – panel administratora (tylko sieci prywatne / VPN)
-
-Autoryzacja API: "Authorization: Bearer <token urządzenia>". Każde urządzenie należy do
-jednego użytkownika i widzi wyłącznie jego sejf.
 """
 
 import asyncio
 import logging
+import os
 from typing import Any, Dict, Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 
 from server import API_PREFIX, SERVER_VERSION
-from server.accounts import AdminStore, AuditLog, EnrollmentStore, UserStore
+from server.accounts import new_totp_secret, totp_uri
 from server.admin import admin_security_headers, create_admin_router
 from server.config import ServerConfig
-from server.devices import DeviceRegistry
+from server.context import ServerContext
 from server.security import RateLimiter, client_ip, ip_allowed, parse_networks
-from server.storage import InvalidVaultError, VaultStore, VersionConflictError
+from server.storage import InvalidVaultError, VersionConflictError
 
 log = logging.getLogger("keystead")
 
@@ -36,16 +39,29 @@ log = logging.getLogger("keystead")
 class EnrollRequest(BaseModel):
     code: str = Field(min_length=4, max_length=64)
     device_name: str = Field(min_length=1, max_length=64)
+    totp: str = Field(default="", max_length=10)
+
+
+class TotpConfirm(BaseModel):
+    code: str = Field(min_length=6, max_length=10)
+
+
+class SecurityReport(BaseModel):
+    score: int = 0
+    total: int = 0
+    breached: int = 0
+    reused: int = 0
+    weak: int = 0
+    missing_totp: int = 0
+    stale: int = 0
+    hibp_checked: bool = False
 
 
 def create_app(config: Optional[ServerConfig] = None) -> FastAPI:
     config = config or ServerConfig.from_env()
-    store = VaultStore(config.data_dir, config.max_history)
-    devices = DeviceRegistry(config.data_dir)
-    users = UserStore(config.data_dir)
-    admins = AdminStore(config.data_dir)
-    enrollments = EnrollmentStore(config.data_dir)
-    audit = AuditLog(config.data_dir)
+    ctx = ServerContext.create(config)
+    store, devices, users, enrollments, audit, settings = (
+        ctx.store, ctx.devices, ctx.users, ctx.enrollments, ctx.audit, ctx.settings)
     api_networks = parse_networks(config.api_allowed_networks)
     auth_limiter = RateLimiter(max_failures=20, window_seconds=600, block_seconds=900)
     enroll_limiter = RateLimiter(max_failures=10, window_seconds=600, block_seconds=1800)
@@ -59,13 +75,20 @@ def create_app(config: Optional[ServerConfig] = None) -> FastAPI:
         version=SERVER_VERSION,
         docs_url=None, redoc_url=None, openapi_url=None,  # brak publicznej dokumentacji API
     )
-    app.state.store = store
-    app.state.devices = devices
-    app.state.users = users
-    app.state.admins = admins
-    app.state.enrollments = enrollments
-    app.state.audit = audit
-    app.state.config = config
+    # Skróty używane przez testy i polecenia administracyjne
+    app.state.ctx = ctx
+    app.state.store, app.state.devices, app.state.users = store, devices, users
+    app.state.admins, app.state.enrollments, app.state.audit = ctx.admins, enrollments, audit
+    app.state.settings, app.state.config = settings, config
+
+    if config.background_tasks:
+        @app.on_event("startup")
+        async def _start_tasks():
+            ctx.tasks.start()
+
+        @app.on_event("shutdown")
+        async def _stop_tasks():
+            ctx.tasks.stop()
 
     @app.middleware("http")
     async def network_and_headers(request: Request, call_next):
@@ -99,23 +122,63 @@ def create_app(config: Optional[ServerConfig] = None) -> FastAPI:
     def _meta_headers(meta: Dict[str, Any]) -> Dict[str, str]:
         return {"ETag": f'"{meta["version"]}"', "X-Vault-Version": str(meta["version"])}
 
+    # ------------------------------------------------------------ publiczne
     @app.get(f"{API_PREFIX}/health")
     async def health():
         return {"status": "ok", "server_version": SERVER_VERSION, "server_id": store.server_id, "enrollment": True}
 
+    @app.get(f"{API_PREFIX}/branding")
+    async def branding():
+        return settings.public_branding()
+
+    @app.get(f"{API_PREFIX}/branding/logo")
+    async def branding_logo():
+        if not os.path.isfile(ctx.logo_path):
+            raise HTTPException(status_code=404, detail="Brak logo.")
+        return FileResponse(ctx.logo_path, media_type="image/png")
+
+    # ------------------------------------------------------------ dołączanie urządzeń
     @app.post(f"{API_PREFIX}/enroll")
     async def enroll(body: EnrollRequest, request: Request):
         ip = client_ip(request)
         blocked, wait = enroll_limiter.is_blocked(ip)
         if blocked:
             raise HTTPException(status_code=429, detail=f"Zbyt wiele nieudanych prób. Spróbuj za {wait // 60 + 1} min.")
-        user_id = enrollments.consume(body.code, body.device_name.strip())
-        if not user_id or not users.is_active(user_id):
+
+        async def _fail(detail: str, status: int = 403, **extra):
             if enroll_limiter.fail(ip):
                 audit.add("enroll_ip_blocked", ip=ip)
-            audit.add("enroll_failed", ip=ip, device=body.device_name.strip())
+            audit.add("enroll_failed", ip=ip, device=body.device_name.strip(), reason=detail[:80])
             await asyncio.sleep(1.0)
-            raise HTTPException(status_code=403, detail="Kod aktywacyjny jest nieprawidłowy, wygasł lub został już użyty.")
+            return JSONResponse(status_code=status, content={"detail": detail, **extra})
+
+        user_id = enrollments.peek(body.code)
+        if not user_id or not users.is_active(user_id):
+            return await _fail("Kod aktywacyjny jest nieprawidłowy, wygasł lub został już użyty.")
+
+        policy = settings.section("policy")
+        max_devices = int(policy.get("max_devices_per_user") or 0)
+        if max_devices and devices.active_count(user_id) >= max_devices:
+            return await _fail(f"Osiągnięto limit urządzeń dla tego konta ({max_devices}). "
+                               "Administrator musi najpierw odciąć jedno z dotychczasowych urządzeń.")
+
+        totp_setup = None
+        if policy.get("require_user_2fa"):
+            if users.has_totp(user_id):
+                if not body.totp:
+                    # Kod aktywacyjny NIE jest zużywany – aplikacja dopyta o kod 2FA i ponowi żądanie
+                    return JSONResponse(status_code=401, content={
+                        "detail": "Dodanie urządzenia wymaga kodu z Twojej aplikacji uwierzytelniającej (2FA).",
+                        "totp_required": True})
+                if not users.verify_totp(user_id, body.totp):
+                    return await _fail("Nieprawidłowy kod 2FA.", status=401, totp_required=True)
+            else:
+                secret = new_totp_secret()
+                users.set_pending_totp(user_id, secret)
+                totp_setup = {"secret": secret, "uri": totp_uri(secret, user_id, ctx.server_name())}
+
+        if not enrollments.consume(body.code, body.device_name.strip()):
+            return await _fail("Kod aktywacyjny został właśnie użyty.")
         enroll_limiter.success(ip)
         token, record = devices.create(body.device_name.strip(), user_id)
         user = users.get(user_id)
@@ -127,14 +190,37 @@ def create_app(config: Optional[ServerConfig] = None) -> FastAPI:
             "username": user["username"],
             "display_name": user["display_name"],
             "server_id": store.server_id,
+            "totp_setup": totp_setup,
+            "branding": settings.public_branding(),
         }
 
+    @app.post(f"{API_PREFIX}/account/totp/confirm")
+    async def confirm_totp(body: TotpConfirm, request: Request, device=Depends(current_device)):
+        if not users.confirm_totp(device["user_id"], body.code):
+            raise HTTPException(status_code=400, detail="Nieprawidłowy kod – sprawdź godzinę w telefonie i spróbuj ponownie.")
+        audit.add("user_2fa_enabled", actor=device["user_id"], ip=client_ip(request), device=device["name"])
+        return {"ok": True}
+
+    # ------------------------------------------------------------ polityki i raporty
+    @app.get(f"{API_PREFIX}/policy")
+    async def policy(device=Depends(current_device)):
+        return settings.public_policy()
+
+    @app.post(f"{API_PREFIX}/report")
+    async def report(body: SecurityReport, request: Request, device=Depends(current_device)):
+        if not settings.section("policy").get("security_report"):
+            raise HTTPException(status_code=403, detail="Raporty bezpieczeństwa są wyłączone przez administratora.")
+        saved = ctx.reports.save(device["user_id"], body.model_dump(), device["name"])
+        return {"ok": True, "received_at": saved["received_at"]}
+
+    # ------------------------------------------------------------ sejf
     @app.get(f"{API_PREFIX}/vault/meta")
     async def vault_meta(device=Depends(current_device)):
         meta = store.get_meta(device["user_id"])
         user = users.get(device["user_id"]) or {}
         return {"exists": bool(meta), "meta": meta, "device": device["name"], "server_id": store.server_id,
-                "user": user.get("display_name", device["user_id"])}
+                "user": user.get("display_name", device["user_id"]),
+                "policy": settings.public_policy(), "branding": settings.public_branding()}
 
     @app.get(f"{API_PREFIX}/vault")
     async def vault_download(device=Depends(current_device)):
@@ -185,5 +271,5 @@ def create_app(config: Optional[ServerConfig] = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Ta wersja nie jest już przechowywana.")
         return Response(blob, media_type="application/octet-stream", headers={"X-Vault-Version": str(version)})
 
-    app.include_router(create_admin_router(config, store, devices, users, admins, enrollments, audit))
+    app.include_router(create_admin_router(ctx))
     return app

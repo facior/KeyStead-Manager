@@ -105,6 +105,22 @@ class DeviceRegistry:
             self._save(kept)
             return len(devices) - len(kept)
 
+    def active_count(self, user_id: str) -> int:
+        return sum(1 for d in self.list_for_user(user_id) if not d.get("revoked"))
+
+    def revoke_all(self) -> int:
+        """Tryb awaryjny: odcina wszystkie urządzenia wszystkich użytkowników."""
+        with self._lock:
+            devices = self._load()
+            count = 0
+            for dev in devices:
+                if not dev.get("revoked"):
+                    dev["revoked"] = True
+                    dev["revoked_at"] = _now()
+                    count += 1
+            self._save(devices)
+            return count
+
     def revoke(self, device_id: str) -> bool:
         with self._lock:
             devices = self._load()

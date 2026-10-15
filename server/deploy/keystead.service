@@ -8,8 +8,8 @@ Type=simple
 User=keystead
 Group=keystead
 EnvironmentFile=/etc/keystead/server.env
-WorkingDirectory=/opt/keystead
-ExecStart=/opt/keystead/venv/bin/python -m server serve
+WorkingDirectory=/opt/keystead/current
+ExecStart=/opt/keystead/current/venv/bin/python -m server serve
 Restart=on-failure
 RestartSec=5
 

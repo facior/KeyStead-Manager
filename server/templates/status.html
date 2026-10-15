@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Stan serwera{% endblock %}
+{% block nav_status %}active{% endblock %}
+{% block content %}
+<h1>Stan serwera</h1>
+<p class="sub">Wersja, zasoby, aktywność i aktualizacje.</p>
+
+<div class="grid">
+  <div class="stat"><b>{{ server_version }}</b><span>Wersja serwera</span></div>
+  <div class="stat"><b>{{ (uptime // 86400) }} d {{ (uptime % 86400) // 3600 }} h</b><span>Czas działania</span></div>
+  <div class="stat"><b>{{ devices_active }} / {{ devices_total }}</b><span>Urządzenia aktywne w 24 h</span></div>
+  <div class="stat"><b>{{ users_total }}</b><span>Użytkownicy</span></div>
+</div>
+
+<div class="card">
+  <h2>💾 Dysk</h2>
+  <dl class="kv">
+    <dt>Dane serwera (bez kopii)</dt><dd>{{ data_bytes|size }}</dd>
+    <dt>Wolne miejsce</dt><dd>{{ disk.free|size }} z {{ disk.total|size }} ({{ disk.free_percent }}%)</dd>
+  </dl>
+  <div class="meter" style="height:12px"><span style="width:{{ 100 - disk.free_percent }}%;{% if disk.free_percent < 10 %}background:var(--danger){% endif %}"></span></div>
+</div>
+
+<div class="card">
+  <h2>📈 Zapisy sejfów (ostatnie 14 dni)</h2>
+  {{ chart|safe }}
+</div>
+
+<div class="card">
+  <h2>⬆️ Aktualizacje</h2>
+  {% set latest = ops.latest_release %}
+  <dl class="kv">
+    <dt>Zainstalowana wersja</dt><dd>{{ server_version }}</dd>
+    <dt>Najnowsze wydanie</dt><dd>{% if latest %}{{ latest.version }}{% if latest.url %} · <a href="{{ latest.url }}" rel="noopener noreferrer">informacje</a>{% endif %}{% else %}<span class="muted">brak danych (repozytorium nie ma jeszcze wydań lub brak połączenia)</span>{% endif %}</dd>
+    <dt>Ostatnie sprawdzenie</dt><dd>{{ ops.last_update_check|dt }}</dd>
+  </dl>
+  <div class="row" style="margin-top:12px">
+    <form method="post" action="/admin/status/check-updates" class="inline">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button type="submit" class="secondary">Sprawdź teraz</button>
+    </form>
+    <a href="/admin/update" style="align-self:center">Aktualizacja i historia wersji →</a>
+  </div>
+</div>
+
+<div class="card">
+  <h2>🌐 Sieć (z pliku /etc/keystead/server.env)</h2>
+  <dl class="kv">
+    <dt>Nasłuch</dt><dd class="mono">{{ network.host }}:{{ network.port }}{% if network.tls %} (TLS){% endif %}</dd>
+    <dt>API dostępne z sieci</dt><dd class="mono">{{ network.api }}</dd>
+    <dt>Panel dostępny z sieci</dt><dd class="mono" style="word-break:break-all">{{ network.admin }}</dd>
+    <dt>Zadania w tle</dt><dd>{% if background %}włączone (kopie, kontrola dysku, aktualizacje){% else %}<span class="muted">wyłączone</span>{% endif %}</dd>
+  </dl>
+  <p class="help">Ustawienia sieci zmienia instalator (<span class="mono">sudo bash server/deploy/install.sh</span>) – zmiana z panelu mogłaby odciąć dostęp do samego panelu.</p>
+</div>
+{% endblock %}

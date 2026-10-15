@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}Aktualizacja serwera{% endblock %}
+{% block head %}{% if refresh %}<meta http-equiv="refresh" content="3">{% endif %}{% endblock %}
+{% block nav_status %}active{% endblock %}
+{% block content %}
+<p><a href="/admin/status">← Stan serwera</a></p>
+<h1>Aktualizacja serwera</h1>
+<p class="sub">Zainstalowana wersja: <b>{{ current }}</b>. Aktualizacje są pobierane z GitHuba i instalowane wyłącznie wtedy,
+  gdy mają poprawny podpis cyfrowy wydawcy.</p>
+
+{% if not available %}
+<div class="flash error">
+  Aktualizator nie jest zainstalowany na tym serwerze albo brakuje klucza weryfikującego wydania
+  (<span class="mono">/etc/keystead/release-signing.pub</span>). Uruchom ponownie instalator z wersji zawierającej klucz wydawcy:
+  <span class="mono">git pull && sudo bash server/deploy/install.sh</span>.
+</div>
+{% endif %}
+
+{% if st.state %}
+<div class="card" {% if st.state in ('failed', 'rolled_back') %}style="border-color:rgba(244,63,94,.5)"{% elif st.state == 'success' %}style="border-color:rgba(16,185,129,.5)"{% endif %}>
+  {% if st.state == 'requested' %}
+    <h2>⏳ Oczekiwanie na aktualizator…</h2>
+    <p class="muted" style="margin:0">{% if st.action == 'rollback' %}Przywracanie poprzedniej wersji{% else %}Aktualizacja do wersji <b>{{ st.version }}</b>{% endif %} – zlecił(a) {{ st.requested_by }}. Strona odświeża się automatycznie.</p>
+  {% elif st.state == 'running' %}
+    <h2>🔄 {% if st.action == 'rollback' %}Przywracanie wersji {{ st.version }}{% else %}Aktualizacja {{ st.from_version }} → {{ st.version }}{% endif %}</h2>
+    <p style="margin:0 0 8px">{{ st.message }}</p>
+    <div class="meter" style="height:12px"><span style="width:{{ ((st.step_index or 0) / (st.steps_total or 6) * 100)|round|int }}%"></span></div>
+    <ol class="steps">
+      {% for key, label in steps %}
+      <li style="{% if loop.index < (st.step_index or 0) %}color:var(--ok){% elif loop.index == st.step_index %}color:var(--text);font-weight:600{% endif %}">
+        {% if loop.index < (st.step_index or 0) %}✓ {% elif loop.index == st.step_index %}… {% endif %}{{ label }}</li>
+      {% endfor %}
+    </ol>
+    <p class="help">Podczas restartu serwer będzie przez chwilę niedostępny, a po aktualizacji trzeba zalogować się do panelu ponownie.
+      Aplikacje użytkowników działają w tym czasie na lokalnych kopiach i same wznowią synchronizację.</p>
+  {% elif st.state == 'success' %}
+    <h2>✅ {{ st.message }}</h2>
+    <p class="muted" style="margin:0">Zakończono {{ st.finished_at|dt }}{% if st.requested_by %} · zlecił(a) {{ st.requested_by }}{% endif %}.</p>
+  {% elif st.state == 'rolled_back' %}
+    <h2>↩️ Aktualizacja nie powiodła się – przywrócono poprzednią wersję</h2>
+    <p style="margin:0">{{ st.message }}</p>
+  {% elif st.state == 'failed' %}
+    <h2>❌ Operacja nie powiodła się</h2>
+    <p style="margin:0">{{ st.message }}</p>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="card">
+  <h2>⬆️ Nowa wersja</h2>
+  {% if newer %}
+    <p style="margin-top:0">Dostępna wersja <b>{{ newer.version }}</b>{% if newer.published_at %} (wydana {{ newer.published_at|dt }}){% endif %}.
+      {% if newer.url %}<a href="{{ newer.url }}" rel="noopener noreferrer">Co nowego</a>{% endif %}</p>
+    <ul class="steps" style="margin-bottom:12px">
+      <li>przed instalacją automatycznie tworzona jest kopia zapasowa danych serwera,</li>
+      <li>nowa wersja instaluje się obok obecnej – przy błędzie serwer sam wraca do wersji {{ current }}.</li>
+    </ul>
+    <form method="post" action="/admin/update/start">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="version" value="{{ newer.version }}">
+      <button type="submit" {% if not available or refresh %}disabled{% endif %}>Zaktualizuj do {{ newer.version }}</button>
+    </form>
+  {% else %}
+    <p class="muted" style="margin-top:0">Serwer jest aktualny albo nie sprawdzano jeszcze wydań.</p>
+    <form method="post" action="/admin/status/check-updates">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button type="submit" class="secondary">Sprawdź teraz</button>
+    </form>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>↩️ Powrót do poprzedniej wersji</h2>
+  <p class="muted" style="margin-top:0">Zainstalowane wersje: {% for v in installed %}<span class="mono">{{ v }}</span>{% if v == current %} (bieżąca){% endif %}{% if not loop.last %}, {% endif %}{% else %}—{% endfor %}</p>
+  <form method="post" action="/admin/update/rollback">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button type="submit" class="secondary" {% if not available or not can_rollback or refresh %}disabled{% endif %}>Przywróć poprzednią wersję</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Historia</h2>
+  {% if history %}
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Kiedy</th><th>Operacja</th><th>Wersje</th><th>Wynik</th><th class="hide-sm">Kto</th></tr></thead>
+    <tbody>
+    {% for h in history %}
+      <tr>
+        <td>{{ h.at|dt }}</td>
+        <td>{{ 'aktualizacja' if h.action == 'update' else 'przywrócenie' }}</td>
+        <td class="mono">{{ h['from'] or '—' }} → {{ h.to }}</td>
+        <td>{% if h.result == 'success' %}<span class="badge ok">sukces</span>{% elif h.result == 'rolled_back' %}<span class="badge off">wycofano</span>{% else %}<span class="badge off">błąd</span>{% endif %}
+          {% if h.message %}<div class="help">{{ h.message }}</div>{% endif %}</td>
+        <td class="hide-sm">{{ h.by or '—' }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="muted" style="margin:0">Brak operacji.</p>
+  {% endif %}
+</div>
+{% endblock %}

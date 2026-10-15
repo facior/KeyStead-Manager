@@ -67,13 +67,54 @@ Adres: `<adres serwera>/admin` – instalator wypisuje dokładny adres i **jedno
      blokada konta (natychmiast odcina wszystkie urządzenia), usunięcie konta z sejfem,
    - **Dziennik zdarzeń** – logowania, aktywacje urządzeń, zapisy sejfów, nieudane próby.
 
-Kod aktywacyjny jest jednorazowy i ważny 24 h (`KS_ENROLLMENT_TTL_HOURS`).
+Kod aktywacyjny jest jednorazowy i ważny 24 h (zmienisz to w **Ustawieniach**).
+
+### Pozostałe sekcje panelu
+
+| Sekcja | Co zawiera |
+|---|---|
+| **Użytkownicy** | konta, urządzenia, kody aktywacyjne (także wysyłka e-mailem), historia wersji sejfu z przywracaniem, reset 2FA, blokada/usunięcie, **tryb awaryjny** – odcięcie wszystkich urządzeń jednym przyciskiem |
+| **Raport bezpieczeństwa** | wynik audytu sejfu każdego użytkownika (wycieki, powtórzone i słabe hasła, brak 2FA) – serwer dostaje **wyłącznie liczby**, nigdy hasła ani nazwy kont |
+| **Stan serwera** | wersja, czas działania, miejsce na dysku, aktywne urządzenia, wykres synchronizacji, informacja o nowej wersji na GitHubie |
+| **Kopie** | kopia całego serwera na żądanie i codziennie o wybranej godzinie, rotacja, pobieranie archiwum |
+| **Dziennik** | filtry (typ zdarzenia, tekst, zakres dat) i eksport do CSV |
+| **Ustawienia** | ogólne, **polityki bezpieczeństwa** wymuszane w aplikacjach, powiadomienia (e-mail SMTP, Teams, Slack, Discord, ntfy, dowolny webhook), nazwa i logo firmy, aktualizacje |
+| **Administratorzy** | zaproszenia (jednorazowy link) z rolą *Administrator* albo *Pomoc techniczna* (tylko podgląd i kody aktywacyjne) |
+
+**Polityki bezpieczeństwa** (aplikacje stosują je w ciągu ~30 s): maksymalny czas automatycznej blokady i przechowywania
+hasła w schowku, minimalna siła hasła głównego (słabsze trzeba zmienić przy odblokowaniu), maksymalny czas pracy bez
+połączenia z serwerem, limit urządzeń na osobę, zakaz własnych kopii (USB / prywatne chmury), raporty bezpieczeństwa
+oraz **2FA użytkownika przy dodawaniu urządzeń** (konfigurowane przy pierwszym urządzeniu).
+
+**Przywrócenie całego serwera z kopii** (usługa zatrzymana; poprzednie dane trafiają do `/var/lib/keystead/.before-restore-…`):
+```bash
+sudo systemctl stop keystead
+sudo keystead-admin restore-backup /var/lib/keystead/backups/keystead-backup-RRRRMMDD-GGMMSS.tar.gz
+sudo systemctl start keystead
+```
 
 **Zabezpieczenia panelu:** dostępny tylko z sieci z `KS_ADMIN_ALLOWED_NETWORKS` i nigdy dla ruchu z internetu
 przychodzącego przez Tailscale Funnel / Cloudflare; hasło Argon2id + obowiązkowe 2FA; blokada po 5 nieudanych
 próbach; sesja wygasa po 30 min bezczynności; ochrona CSRF; brak JavaScriptu i restrykcyjna polityka CSP.
 
 **Utrata telefonu z 2FA:** `sudo keystead-admin reset-admin`, potem `sudo keystead-admin setup-token`.
+
+### Aktualizacja z panelu
+
+**Stan serwera → Aktualizacja i historia wersji.** Gdy na GitHubie pojawi się nowe wydanie, panel pokazuje przycisk
+**Zaktualizuj do X.Y.Z** i postęp: pobieranie → weryfikacja podpisu → kopia danych → instalacja → restart → kontrola działania.
+
+- Panel (usługa bez uprawnień) tylko zapisuje prośbę; instaluje osobna usługa `keystead-updater` (root), uruchamiana przez systemd.
+- Instalowane są **wyłącznie wydania podpisane kluczem wydawcy** (`/etc/keystead/release-signing.pub`, `ssh-keygen -Y verify`)
+  – podmienione lub niepodpisane pliki są odrzucane, zanim cokolwiek zostanie zmienione.
+- Każda wersja ma własny katalog `/opt/keystead/releases/<wersja>`, a `/opt/keystead/current` wskazuje bieżącą.
+  Jeśli nowa wersja nie odpowiada po restarcie, serwer **sam wraca do poprzedniej**. Przechowywane są 3 ostatnie wersje,
+  a przycisk **Przywróć poprzednią wersję** cofa aktualizację ręcznie.
+- Podgląd z terminala: `sudo /opt/keystead/current/venv/bin/python -m server.updater status`,
+  logi: `journalctl -u keystead-updater`.
+
+Dla wydawcy (komputer z kluczem prywatnym): `python tools/release.py init-key` (jednorazowo),
+następnie po podniesieniu `SERVER_VERSION` w `server/__init__.py`: `python tools/release.py X.Y.Z --notes "Co nowego"`.
 
 ---
 

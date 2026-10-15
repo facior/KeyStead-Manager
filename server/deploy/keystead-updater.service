@@ -1,0 +1,15 @@
+[Unit]
+Description=KeyStead Server - aktualizator (uruchamiany na prośbę z panelu administratora)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+EnvironmentFile=/etc/keystead/server.env
+WorkingDirectory=/opt/keystead/current
+ExecStart=/opt/keystead/current/venv/bin/python -m server.updater run
+TimeoutStartSec=1800
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0022

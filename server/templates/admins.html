@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Administratorzy{% endblock %}
+{% block nav_admins %}active{% endblock %}
+{% block content %}
+<h1>Administratorzy panelu</h1>
+<p class="sub">Osoby z dostępem do panelu. Każde konto wymaga hasła i kodu 2FA.</p>
+
+<div class="card">
+  <h2>Role</h2>
+  <dl class="kv">
+    <dt>Administrator</dt><dd>pełne uprawnienia: użytkownicy, urządzenia, polityki, kopie, ustawienia, administratorzy</dd>
+    <dt>Pomoc techniczna</dt><dd>podgląd użytkowników, generowanie i wysyłanie kodów aktywacyjnych – bez blokowania, usuwania i ustawień</dd>
+  </dl>
+</div>
+
+<div class="card">
+  <h2>✉️ Zaproś osobę</h2>
+  <form method="post" action="/admin/admins/invite" class="row">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="field" style="max-width:260px"><label for="r">Rola</label>
+      <select id="r" name="role">
+        <option value="helpdesk">Pomoc techniczna</option>
+        <option value="admin">Administrator</option>
+      </select></div>
+    <button type="submit">Utwórz link zaproszenia</button>
+  </form>
+  <p class="help">Link jest jednorazowy i ważny 48 h. Osoba zapraszana otwiera go z sieci, z której dostępny jest panel.</p>
+</div>
+
+<div class="card">
+  <h2>Konta</h2>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Login</th><th>Rola</th><th class="hide-sm">Utworzono</th><th></th></tr></thead>
+    <tbody>
+    {% for a in admins_list %}
+      <tr>
+        <td class="mono">{{ a.username }}{% if a.username == session.username %} <span class="badge">to Ty</span>{% endif %}</td>
+        <td>{{ roles[a.role] }}</td>
+        <td class="hide-sm">{{ a.created_at|dt }}</td>
+        <td style="text-align:right">
+          {% if a.username != session.username %}
+          <form method="post" action="/admin/admins/{{ a.username }}/delete" class="inline">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <button type="submit" class="secondary small">Usuń dostęp</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endblock %}

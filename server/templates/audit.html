@@ -3,9 +3,26 @@
 {% block nav_audit %}active{% endblock %}
 {% block content %}
 <h1>Dziennik zdarzeń</h1>
-<p class="sub">Ostatnie operacje administracyjne, logowania, aktywacje urządzeń i zapisy sejfów.</p>
+<p class="sub">Operacje administracyjne, logowania, aktywacje urządzeń, zapisy sejfów i alarmy.</p>
+
+<div class="card">
+  <form method="get" action="/admin/audit" class="row">
+    <div class="field"><label for="ev">Zdarzenie</label>
+      <select id="ev" name="event">
+        <option value="">wszystkie</option>
+        {% for t in event_types %}<option value="{{ t }}" {% if filters.event == t %}selected{% endif %}>{{ labels.get(t, t) }}{% if labels.get(t) %} ({{ t }}){% endif %}</option>{% endfor %}
+      </select></div>
+    <div class="field"><label for="q">Szukaj (login, IP, urządzenie…)</label><input id="q" name="q" value="{{ filters.text }}"></div>
+    <div class="field" style="max-width:170px"><label for="s">Od</label><input id="s" name="since" type="date" value="{{ filters.since }}"></div>
+    <div class="field" style="max-width:170px"><label for="u">Do</label><input id="u" name="until" type="date" value="{{ filters.until }}"></div>
+    <button type="submit" class="secondary">Filtruj</button>
+    <a href="/admin/audit.csv?event={{ filters.event|urlencode }}&q={{ filters.text|urlencode }}&since={{ filters.since }}&until={{ filters.until }}" style="align-self:center">Eksport CSV</a>
+  </form>
+</div>
+
 <div class="card">
   {% if events %}
+  <p class="muted" style="margin-top:0">Wyświetlono {{ events|length }} zdarzeń (maks. 500 – pełna lista w eksporcie CSV).</p>
   <div class="table-wrap">
   <table>
     <thead><tr><th>Czas</th><th>Zdarzenie</th><th>Kto</th><th class="hide-sm">Adres IP</th><th>Szczegóły</th></tr></thead>
@@ -13,7 +30,7 @@
     {% for e in events %}
       <tr>
         <td class="mono">{{ e.time|dt }}</td>
-        <td>{% if 'failed' in e.event or 'blocked' in e.event %}<span class="badge off">{{ e.event }}</span>{% else %}<span class="badge">{{ e.event }}</span>{% endif %}</td>
+        <td>{% if 'failed' in e.event or 'blocked' in e.event or e.event in ('disk_low', 'devices_revoked_all') %}<span class="badge off">{{ e.event }}</span>{% else %}<span class="badge">{{ e.event }}</span>{% endif %}</td>
         <td>{{ e.actor or '—' }}</td>
         <td class="hide-sm mono">{{ e.ip or '—' }}</td>
         <td class="muted">{% for k, v in e.items() if k not in ('time', 'event', 'actor', 'ip') %}{{ k }}={{ v }}{% if not loop.last %}, {% endif %}{% endfor %}</td>
@@ -23,7 +40,7 @@
   </table>
   </div>
   {% else %}
-  <p class="muted" style="margin:0">Brak zdarzeń.</p>
+  <p class="muted" style="margin:0">Brak zdarzeń spełniających kryteria.</p>
   {% endif %}
 </div>
 {% endblock %}

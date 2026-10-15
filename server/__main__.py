@@ -11,10 +11,13 @@ Narzędzie administracyjne serwera (uruchamiane na serwerze jako `sudo keystead-
     list-devices                      – lista urządzeń
     revoke-device <device_id>         – odetnij urządzenie
     status [--user login]             – stan sejfu
+    backup                            – kopia zapasowa katalogu danych (do <dane>/backups)
+    restore-backup <plik.tar.gz>      – przywrócenie serwera z kopii (przy zatrzymanej usłudze)
 """
 
 import argparse
 import logging
+import os
 import sys
 
 from server import SERVER_VERSION
@@ -44,6 +47,9 @@ def main(argv=None) -> int:
     rev.add_argument("device_id")
     st = sub.add_parser("status", help="stan sejfu")
     st.add_argument("--user", default="owner")
+    sub.add_parser("backup", help="utwórz kopię zapasową katalogu danych")
+    rb = sub.add_parser("restore-backup", help="przywróć serwer z kopii (usługa musi być zatrzymana)")
+    rb.add_argument("archive")
     args = parser.parse_args(argv)
 
     config = ServerConfig.from_env()
@@ -137,6 +143,26 @@ def main(argv=None) -> int:
             audit.add("device_revoked", actor="terminal", device_id=args.device_id)
         print("Token odwołany." if ok else "Nie znaleziono aktywnego urządzenia o tym id.")
         return 0 if ok else 1
+
+    if args.cmd == "backup":
+        from server.ops import BackupService
+        info = BackupService(config.data_dir).create()
+        audit.add("backup_created", actor="terminal", name=info["name"])
+        print(f"Utworzono kopię: {os.path.join(config.data_dir, 'backups', info['name'])} ({info['size']} B)")
+        return 0
+
+    if args.cmd == "restore-backup":
+        from server.ops import BackupService
+        if not os.path.isfile(args.archive):
+            print("Nie znaleziono pliku kopii.")
+            return 1
+        try:
+            previous = BackupService.restore(args.archive, config.data_dir)
+        except (OSError, ValueError) as e:
+            print(f"Przywracanie nie powiodło się: {e}")
+            return 1
+        print(f"Przywrócono dane z {args.archive}.\nPoprzednie dane: {previous}\nUruchom usługę: sudo systemctl start keystead")
+        return 0
 
     if args.cmd == "status":
         store = VaultStore(config.data_dir, config.max_history)

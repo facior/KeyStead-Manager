@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% block title %}Ustawienia{% endblock %}
+{% block nav_settings %}active{% endblock %}
+{% block content %}
+<h1>Ustawienia</h1>
+<p class="sub">Zmiany obowiązują od razu; aplikacje użytkowników pobiorą nowe polityki i wygląd przy najbliższej synchronizacji (~30 s).</p>
+<div class="tabs">
+  <a href="#ogolne">Ogólne</a><a href="#polityki">Polityki bezpieczeństwa</a><a href="#powiadomienia">Powiadomienia</a>
+  <a href="#marka">Wygląd i marka</a><a href="#aktualizacje">Aktualizacje</a>
+</div>
+
+<div class="card" id="ogolne">
+  <h2>⚙️ Ogólne</h2>
+  <form method="post" action="/admin/settings/general">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="row">
+      <div class="field"><label for="pu">Adres serwera dla użytkowników</label>
+        <input id="pu" name="public_url" value="{{ cfg.general.public_url }}" placeholder="{{ public_url or 'https://vault.firma.pl' }}">
+        <p class="help">Pokazywany przy kodach aktywacyjnych i w e-mailach. Puste = wartość z instalatora.</p></div>
+      <div class="field" style="max-width:200px"><label for="mh">Wersji sejfu na użytkownika</label>
+        <input id="mh" name="max_history" type="number" min="1" max="1000" value="{{ cfg.general.max_history }}"></div>
+      <div class="field" style="max-width:200px"><label for="tt">Ważność kodów (godziny)</label>
+        <input id="tt" name="enrollment_ttl_hours" type="number" min="1" max="720" value="{{ cfg.general.enrollment_ttl_hours }}"></div>
+    </div>
+    <button type="submit" style="margin-top:12px">Zapisz</button>
+  </form>
+  <p class="help" style="margin-top:14px">Sieć (adres nasłuchu, TLS, dozwolone sieci: <span class="mono">{{ network.api }}</span>) zmienia instalator – patrz <a href="/admin/status">Stan serwera</a>.</p>
+</div>
+
+<div class="card" id="polityki">
+  <h2>🛡️ Polityki bezpieczeństwa (wymuszane w aplikacji)</h2>
+  <form method="post" action="/admin/settings/policy">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    {% set p = cfg.policy %}
+    <div class="row">
+      <div class="field"><label for="al">Maks. czas do automatycznej blokady (min)</label>
+        <input id="al" name="max_auto_lock_minutes" type="number" min="0" max="1440" value="{{ p.max_auto_lock_minutes }}">
+        <p class="help">0 = bez limitu. Użytkownik może ustawić krótszy czas, ale nie dłuższy.</p></div>
+      <div class="field"><label for="cb">Maks. czas przechowywania hasła w schowku (s)</label>
+        <input id="cb" name="max_clipboard_seconds" type="number" min="0" max="3600" value="{{ p.max_clipboard_seconds }}">
+        <p class="help">0 = bez limitu.</p></div>
+      <div class="field"><label for="ms">Minimalna siła hasła głównego</label>
+        <select id="ms" name="min_master_score">
+          {% for v, l in [(0, 'bez wymagań'), (1, 'słabe'), (2, 'średnie (zalecane minimum)'), (3, 'silne'), (4, 'bardzo silne')] %}
+          <option value="{{ v }}" {% if p.min_master_score == v %}selected{% endif %}>{{ l }}</option>{% endfor %}
+        </select>
+        <p class="help">Słabsze hasło główne trzeba będzie zmienić przy najbliższym odblokowaniu.</p></div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <div class="field"><label for="mo">Maks. czas pracy bez połączenia z serwerem (godz.)</label>
+        <input id="mo" name="max_offline_hours" type="number" min="0" max="8760" value="{{ p.max_offline_hours }}">
+        <p class="help">Po tym czasie lokalna kopia nie otworzy się bez potwierdzenia dostępu na serwerze. 0 = bez limitu.</p></div>
+      <div class="field"><label for="md">Maks. liczba urządzeń na użytkownika</label>
+        <input id="md" name="max_devices_per_user" type="number" min="0" max="100" value="{{ p.max_devices_per_user }}">
+        <p class="help">0 = bez limitu.</p></div>
+    </div>
+    <div style="margin-top:10px">
+      <label class="check"><input type="checkbox" name="allow_never_lock" value="1" {% if p.allow_never_lock %}checked{% endif %}> Pozwól wyłączyć automatyczną blokadę („Nigdy”)</label>
+      <label class="check"><input type="checkbox" name="allow_personal_backups" value="1" {% if p.allow_personal_backups %}checked{% endif %}> Pozwól na własne kopie sejfu (USB, Dysk Google, OneDrive, Dropbox, WebDAV)</label>
+      <label class="check"><input type="checkbox" name="security_report" value="1" {% if p.security_report %}checked{% endif %}> Zbieraj raporty bezpieczeństwa (tylko liczby – bez haseł)</label>
+      <label class="check"><input type="checkbox" name="require_user_2fa" value="1" {% if p.require_user_2fa %}checked{% endif %}> Wymagaj 2FA użytkownika przy dodawaniu nowych urządzeń</label>
+    </div>
+    <button type="submit" style="margin-top:12px">Zapisz polityki</button>
+  </form>
+</div>
+
+<div class="card" id="powiadomienia">
+  <h2>🔔 Powiadomienia administratora</h2>
+  {% set n = cfg.notifications %}
+  <form method="post" action="/admin/settings/notifications" autocomplete="off">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <h2 style="font-size:14px;margin-top:6px">E-mail (SMTP)</h2>
+    <label class="check"><input type="checkbox" name="email_enabled" value="1" {% if n.email.enabled %}checked{% endif %}> Wysyłaj powiadomienia e-mailem</label>
+    <div class="row">
+      <div class="field"><label for="sh">Serwer SMTP</label><input id="sh" name="smtp_host" value="{{ n.email.smtp_host }}" placeholder="smtp.firma.pl"></div>
+      <div class="field" style="max-width:120px"><label for="sp">Port</label><input id="sp" name="smtp_port" type="number" value="{{ n.email.smtp_port }}"></div>
+      <div class="field" style="max-width:180px"><label for="ss">Szyfrowanie</label>
+        <select id="ss" name="smtp_security">
+          {% for v, l in [('starttls', 'STARTTLS (587)'), ('ssl', 'SSL/TLS (465)'), ('none', 'brak')] %}
+          <option value="{{ v }}" {% if n.email.security == v %}selected{% endif %}>{{ l }}</option>{% endfor %}
+        </select></div>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <div class="field"><label for="su">Login SMTP</label><input id="su" name="smtp_username" value="{{ n.email.username }}"></div>
+      <div class="field"><label for="sw">Hasło SMTP</label><input id="sw" name="smtp_password" type="password" placeholder="{% if n.email.password %}•••••• (bez zmian){% endif %}" autocomplete="new-password"></div>
+      <div class="field"><label for="sf">Nadawca</label><input id="sf" name="smtp_sender" value="{{ n.email.sender }}" placeholder="keystead@firma.pl"></div>
+    </div>
+    <div class="field" style="margin-top:8px"><label for="sr">Odbiorcy powiadomień (po przecinku)</label><input id="sr" name="smtp_recipients" value="{{ n.email.recipients }}" placeholder="it@firma.pl, szef@firma.pl"></div>
+
+    <h2 style="font-size:14px;margin-top:18px">Webhook (Teams / Slack / Discord / ntfy)</h2>
+    <label class="check"><input type="checkbox" name="webhook_enabled" value="1" {% if n.webhook.enabled %}checked{% endif %}> Wysyłaj powiadomienia na webhook</label>
+    <div class="row">
+      <div class="field" style="max-width:220px"><label for="wk">Rodzaj</label>
+        <select id="wk" name="webhook_kind">
+          {% for v, l in [('teams', 'Microsoft Teams (Workflows)'), ('slack', 'Slack'), ('discord', 'Discord'), ('ntfy', 'ntfy (telefon)'), ('generic', 'Dowolny (JSON)')] %}
+          <option value="{{ v }}" {% if n.webhook.kind == v %}selected{% endif %}>{{ l }}</option>{% endfor %}
+        </select></div>
+      <div class="field"><label for="wu">Adres webhooka</label><input id="wu" name="webhook_url" value="{{ n.webhook.url }}" placeholder="https://..."></div>
+    </div>
+
+    <h2 style="font-size:14px;margin-top:18px">Zdarzenia</h2>
+    {% for key, label in event_labels.items() %}
+    <label class="check"><input type="checkbox" name="events" value="{{ key }}" {% if key in n.events %}checked{% endif %}> {{ label }}</label>
+    {% endfor %}
+    <div class="field" style="max-width:260px;margin-top:8px"><label for="dl">Alarm, gdy wolnego miejsca mniej niż (%)</label>
+      <input id="dl" name="disk_low_percent" type="number" min="1" max="90" value="{{ n.disk_low_percent }}"></div>
+    <p class="help">To samo zdarzenie jest wysyłane najwyżej raz na 5 minut. Hasło SMTP jest przechowywane na serwerze (plik dostępny tylko dla usługi).</p>
+    <button type="submit" style="margin-top:12px">Zapisz powiadomienia</button>
+  </form>
+  <form method="post" action="/admin/settings/notifications/test" style="margin-top:10px">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button type="submit" class="secondary">Wyślij powiadomienie testowe</button>
+  </form>
+</div>
+
+<div class="card" id="marka">
+  <h2>🎨 Wygląd i marka</h2>
+  <p class="muted" style="margin-top:0">Nazwa i logo firmy pojawią się w panelu oraz w aplikacji KeyStead Manager każdego użytkownika.</p>
+  <form method="post" action="/admin/settings/branding" enctype="multipart/form-data">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="row">
+      <div class="field"><label for="cn">Nazwa firmy</label><input id="cn" name="company_name" maxlength="60" value="{{ cfg.branding.company_name }}" placeholder="np. Kowalski Sp. z o.o."></div>
+      <div class="field" style="max-width:160px"><label for="ac">Kolor akcentu</label><input id="ac" name="accent_color" type="color" value="{{ cfg.branding.accent_color }}" style="height:40px;padding:4px"></div>
+      <div class="field"><label for="lg">Logo (PNG, do 256 KB)</label><input id="lg" name="logo" type="file" accept="image/png"></div>
+    </div>
+    <button type="submit" style="margin-top:12px">Zapisz wygląd</button>
+  </form>
+  {% if cfg.branding.has_logo %}
+  <div class="row" style="margin-top:14px;align-items:center">
+    <img src="/admin/logo" alt="Logo" style="height:48px;background:var(--card);padding:6px;border-radius:8px">
+    <form method="post" action="/admin/settings/branding/logo/delete" class="inline">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button type="submit" class="secondary small">Usuń logo</button>
+    </form>
+  </div>
+  {% endif %}
+</div>
+
+<div class="card" id="aktualizacje">
+  <h2>⬆️ Aktualizacje</h2>
+  <form method="post" action="/admin/settings/updates" class="row">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label class="check"><input type="checkbox" name="check" value="1" {% if cfg.updates.check %}checked{% endif %}> Codziennie sprawdzaj nowe wydania</label>
+    <div class="field"><label for="rp">Repozytorium GitHub</label><input id="rp" name="repository" value="{{ cfg.updates.repository }}"></div>
+    <button type="submit" class="secondary">Zapisz</button>
+  </form>
+</div>
+{% endblock %}

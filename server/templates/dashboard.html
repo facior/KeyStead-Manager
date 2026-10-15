@@ -9,8 +9,14 @@
   <div class="stat"><b>{{ stats.users }}</b><span>Konta</span></div>
   <div class="stat"><b>{{ stats.active_users }}</b><span>Aktywne</span></div>
   <div class="stat"><b>{{ stats.devices }}</b><span>Urządzenia</span></div>
-  <div class="stat"><b>{{ stats.storage|size }}</b><span>Zajęte miejsce (bieżące wersje)</span></div>
+  <div class="stat"><b>{% if stats.avg_score is not none %}{{ stats.avg_score }}/100{% else %}—{% endif %}</b><span>Średni wynik bezpieczeństwa</span></div>
 </div>
+
+{% if is_admin and backups_enabled is sameas false %}
+<div class="flash error">⚠️ Automatyczne kopie zapasowe serwera są wyłączone. <a href="/admin/backups">Włącz je</a>.</div>
+{% elif is_admin and last_backup and not last_backup.ok %}
+<div class="flash error">⚠️ Ostatnia kopia zapasowa serwera nie powiodła się ({{ last_backup.at|dt }}). <a href="/admin/backups">Szczegóły</a></div>
+{% endif %}
 
 {% if public_url or tls_fingerprint %}
 <div class="card">
@@ -21,6 +27,7 @@
 </div>
 {% endif %}
 
+{% if is_admin %}
 <div class="card">
   <h2>➕ Nowy użytkownik</h2>
   <form method="post" action="/admin/users" class="row" autocomplete="off">
@@ -33,22 +40,28 @@
       <label for="dn">Imię i nazwisko / opis</label>
       <input id="dn" name="display_name" placeholder="np. Jan Kowalski – księgowość">
     </div>
+    <div class="field">
+      <label for="em">E-mail (opcjonalnie)</label>
+      <input id="em" name="email" type="email" placeholder="do wysyłki kodów aktywacyjnych">
+    </div>
     <button type="submit">Utwórz i wygeneruj kod</button>
   </form>
 </div>
+{% endif %}
 
 <div class="card">
   <h2>Konta</h2>
   {% if users %}
   <div class="table-wrap">
   <table>
-    <thead><tr><th>Użytkownik</th><th>Status</th><th>Urządzenia</th><th class="hide-sm">Sejf</th><th class="hide-sm">Ostatnia aktywność</th><th></th></tr></thead>
+    <thead><tr><th>Użytkownik</th><th>Status</th><th>Urządzenia</th><th class="hide-sm">Wynik</th><th class="hide-sm">Sejf</th><th class="hide-sm">Ostatnia aktywność</th><th></th></tr></thead>
     <tbody>
     {% for u in users %}
       <tr>
-        <td><b>{{ u.display_name }}</b><br><span class="muted mono">{{ u.username }}</span></td>
+        <td><b>{{ u.display_name }}</b><br><span class="muted mono">{{ u.username }}</span>{% if u.has_2fa %} <span class="badge ok" title="Włączone 2FA">2FA</span>{% endif %}</td>
         <td>{% if u.disabled %}<span class="badge off">zablokowane</span>{% else %}<span class="badge ok">aktywne</span>{% endif %}</td>
         <td>{{ u.devices }}</td>
+        <td class="hide-sm">{% if u.report %}<span class="score {{ 'good' if u.report.score >= 80 else ('mid' if u.report.score >= 50 else 'bad') }}">{{ u.report.score }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
         <td class="hide-sm">{% if u.meta %}v{{ u.meta.version }} · {{ u.meta.size|size }}{% else %}<span class="muted">jeszcze nie wysłany</span>{% endif %}</td>
         <td class="hide-sm">{{ u.last_seen|dt }}</td>
         <td style="text-align:right"><a href="/admin/users/{{ u.user_id }}">Zarządzaj →</a></td>
@@ -58,7 +71,21 @@
   </table>
   </div>
   {% else %}
-  <p class="muted">Brak użytkowników. Utwórz pierwsze konto powyżej.</p>
+  <p class="muted">Brak użytkowników.{% if is_admin %} Utwórz pierwsze konto powyżej.{% endif %}</p>
   {% endif %}
 </div>
+
+{% if is_admin %}
+<div class="card danger-zone">
+  <h2>🚨 Tryb awaryjny</h2>
+  <p class="muted" style="margin-top:0">Natychmiast odcina <b>wszystkie urządzenia wszystkich użytkowników</b> i unieważnia niewykorzystane kody.
+    Aplikacje zamkną sejfy i usuną lokalne kopie w ciągu ~30 s. Sejfy na serwerze pozostają nienaruszone –
+    użytkownicy wrócą do pracy po otrzymaniu nowych kodów aktywacyjnych. Użyj np. przy podejrzeniu wycieku tokenów.</p>
+  <form method="post" action="/admin/panic" class="row" autocomplete="off">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="field"><label for="pc">Wpisz ODETNIJ, aby potwierdzić</label><input id="pc" name="confirm" required></div>
+    <button type="submit" class="danger">Odetnij wszystkie urządzenia</button>
+  </form>
+</div>
+{% endif %}
 {% endblock %}

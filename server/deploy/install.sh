@@ -23,7 +23,7 @@ TLS_DIR=$CONF_DIR/tls
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PRIVATE_NETS="127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,100.64.0.0/10,fd7a:115c:a1e0::/48,fc00::/7"
 
-MODE="" PORT="" LISTEN="" CERT="" KEY="" PUBLIC_URL="" ALLOW_FROM="any" ADMIN_FROM="$PRIVATE_NETS" CF_TOKEN=""
+MODE="" PORT="" LISTEN="" CERT="" KEY="" PUBLIC_URL="" ALLOW_FROM="any" ADMIN_FROM="$PRIVATE_NETS" CF_TOKEN="" UPDATE_REPO=""
 
 die() { echo "!! $*" >&2; exit 1; }
 info() { echo "==> $*"; }
@@ -39,6 +39,7 @@ while [[ $# -gt 0 ]]; do
         --allow-from) ALLOW_FROM="$2"; shift 2 ;;
         --admin-from) ADMIN_FROM="$2"; shift 2 ;;
         --cf-token) CF_TOKEN="$2"; shift 2 ;;
+        --update-repo) UPDATE_REPO="$2"; shift 2 ;;
         -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
         *) die "Nieznana opcja: $1 (zobacz --help)" ;;
     esac
@@ -47,6 +48,14 @@ done
 [[ $EUID -eq 0 ]] || die "Uruchom jako root: sudo bash $0"
 
 has_tailscale() { command -v tailscale &>/dev/null && tailscale status &>/dev/null; }
+
+# Czy certyfikat istnieje i jest wystawiony dokładnie na podany adres (IP lub nazwę)?
+cert_matches() {
+    local crt="$1" addr="$2" san
+    [[ -f "$crt" ]] || return 1
+    san="$(openssl x509 -in "$crt" -noout -ext subjectAltName 2>/dev/null | tr -d ' \r')" || return 1
+    [[ ",${san//$'\n'/,}," == *",IPAddress:$addr,"* || ",${san//$'\n'/,}," == *",DNS:$addr,"* ]]
+}
 
 if [[ -z "$MODE" ]]; then
     if [[ -t 0 ]]; then
@@ -108,21 +117,35 @@ esac
 
 info "Instalacja pakietów systemowych"
 apt-get update -qq
-apt-get install -y -qq python3 python3-venv curl sudo openssl >/dev/null
+apt-get install -y -qq python3 python3-venv curl sudo openssl openssh-client >/dev/null
 
 info "Użytkownik systemowy 'keystead'"
 id keystead &>/dev/null || useradd --system --home-dir "$DATA_DIR" --shell /usr/sbin/nologin keystead
 
-info "Kopiowanie aplikacji do $APP_DIR"
-install -d -m 755 "$APP_DIR"
-rm -rf "$APP_DIR/server"
-cp -r "$SRC_DIR/server" "$APP_DIR/server"
-find "$APP_DIR/server" -name '__pycache__' -prune -exec rm -rf {} +
+# Wersjonowany układ: /opt/keystead/releases/<wersja> + dowiązanie /opt/keystead/current
+# (aktualizator instaluje nową wersję obok bieżącej i może do niej wrócić)
+VERSION="$(sed -n 's/^SERVER_VERSION = "\(.*\)"/\1/p' "$SRC_DIR/server/__init__.py")"
+[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "Nie udało się odczytać wersji serwera z server/__init__.py."
+RELEASE_DIR="$APP_DIR/releases/$VERSION"
+
+info "Instalacja wersji $VERSION w $RELEASE_DIR"
+install -d -m 755 "$APP_DIR" "$APP_DIR/releases"
+rm -rf "$RELEASE_DIR.new"
+install -d -m 755 "$RELEASE_DIR.new"
+cp -r "$SRC_DIR/server" "$RELEASE_DIR.new/server"
+find "$RELEASE_DIR.new/server" -name '__pycache__' -prune -exec rm -rf {} +
 
 info "Środowisko Python"
-[[ -d "$APP_DIR/venv" ]] || python3 -m venv "$APP_DIR/venv"
-"$APP_DIR/venv/bin/pip" install -q --upgrade pip
-"$APP_DIR/venv/bin/pip" install -q -r "$APP_DIR/server/requirements.txt"
+python3 -m venv "$RELEASE_DIR.new/venv"
+"$RELEASE_DIR.new/venv/bin/pip" install -q --upgrade pip
+"$RELEASE_DIR.new/venv/bin/pip" install -q -r "$RELEASE_DIR.new/server/requirements.txt"
+rm -rf "$RELEASE_DIR"
+mv "$RELEASE_DIR.new" "$RELEASE_DIR"
+chown -R root:root "$RELEASE_DIR"
+ln -sfn "$RELEASE_DIR" "$APP_DIR/current.new" && mv -Tf "$APP_DIR/current.new" "$APP_DIR/current"
+
+# Migracja ze starszego układu (/opt/keystead/server + /opt/keystead/venv)
+rm -rf "$APP_DIR/server" "$APP_DIR/venv"
 
 install -d -m 700 -o keystead -g keystead "$DATA_DIR"
 install -d -m 755 "$CONF_DIR"
@@ -137,7 +160,7 @@ if [[ "$MODE" == "direct" ]]; then
         install -m 644 -o root -g keystead "$CERT" "$TLS_DIR/server.crt"
         install -m 640 -o root -g keystead "$KEY" "$TLS_DIR/server.key"
         echo "provided" > "$MARKER"
-    elif [[ ! -f "$TLS_DIR/server.crt" || ( "$(cat "$MARKER" 2>/dev/null)" != "provided" && "$(cat "$MARKER" 2>/dev/null)" != "$LISTEN" ) ]]; then
+    elif [[ "$(cat "$MARKER" 2>/dev/null)" != "provided" ]] && ! cert_matches "$TLS_DIR/server.crt" "$LISTEN"; then
         # Brak certyfikatu albo wygenerowany dla innego adresu → nowy certyfikat samopodpisany
         info "Generuję certyfikat samopodpisany (ważny 10 lat) dla $LISTEN"
         case "$LISTEN_KIND" in
@@ -186,15 +209,33 @@ info "Polecenie administracyjne keystead-admin"
 cat > /usr/local/bin/keystead-admin <<'EOF'
 #!/usr/bin/env bash
 set -a; source /etc/keystead/server.env; set +a
-cd /opt/keystead
-exec sudo -E -u keystead /opt/keystead/venv/bin/python -m server "$@"
+cd /opt/keystead/current
+exec sudo -E -u keystead /opt/keystead/current/venv/bin/python -m server "$@"
 EOF
 chmod 755 /usr/local/bin/keystead-admin
 
-info "Usługa systemd"
-install -m 644 "$SRC_DIR/server/deploy/keystead.service" /etc/systemd/system/keystead.service
+info "Aktualizacje z panelu administratora"
+UPDATER_STATE=/var/lib/keystead-updater
+install -d -m 755 -o root -g root "$UPDATER_STATE"
+install -d -m 700 -o keystead -g keystead "$DATA_DIR/update"
+[[ -f "$CONF_DIR/updater.env" ]] || echo "KS_UPDATE_REPOSITORY=${UPDATE_REPO:-facior/KeyStead-Manager}" > "$CONF_DIR/updater.env"
+chmod 644 "$CONF_DIR/updater.env"
+UPDATES_ENABLED=0
+if [[ -s "$SRC_DIR/server/deploy/release-signing.pub" ]]; then
+    # Klucz weryfikujący podpisy wydań – plik roota, panel nie może go zmienić
+    install -m 644 -o root -g root "$SRC_DIR/server/deploy/release-signing.pub" "$CONF_DIR/release-signing.pub"
+    UPDATES_ENABLED=1
+else
+    echo "   (brak klucza server/deploy/release-signing.pub – aktualizacje z panelu wyłączone)"
+fi
+
+info "Usługi systemd"
+for unit in keystead.service keystead-updater.service keystead-updater.path; do
+    install -m 644 "$SRC_DIR/server/deploy/$unit" "/etc/systemd/system/$unit"
+done
 systemctl daemon-reload
 systemctl enable keystead.service >/dev/null
+systemctl enable --now keystead-updater.path >/dev/null
 systemctl restart keystead.service
 SCHEME=http; [[ -n "$TLS_CERT" ]] && SCHEME=https
 CHECK_HOST="$HOST"; [[ "${LISTEN_KIND:-}" == ip6 ]] && CHECK_HOST="[$HOST]"
@@ -303,6 +344,8 @@ EOF
     ;;
 esac
 cat <<EOF
+
+ Wersja serwera: $VERSION   ·   aktualizacje z panelu: $([[ $UPDATES_ENABLED == 1 ]] && echo "włączone (podpisane wydania)" || echo "wyłączone (brak klucza wydawcy)")
 
  Dalej: zaloguj się do panelu, utwórz użytkowników i wygeneruj im kody aktywacyjne.
  Polecenia: sudo keystead-admin list-users | add-user | enroll-code | status

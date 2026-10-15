@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Kopie zapasowe{% endblock %}
+{% block nav_backups %}active{% endblock %}
+{% block content %}
+<h1>Kopie zapasowe serwera</h1>
+<p class="sub">Archiwum całego katalogu danych: zaszyfrowane sejfy z historią, konta, urządzenia i ustawienia.</p>
+
+<div class="flash error" style="background:rgba(245,158,11,.08);border-color:rgba(245,158,11,.4)">
+  🔒 Sejfy w kopii są zaszyfrowane, ale konta administratorów, skróty tokenów i ustawienia (np. hasło SMTP) – nie.
+  Przechowuj pobrane kopie tak samo starannie jak klucze do serwera.
+</div>
+
+<div class="card">
+  <h2>⏰ Harmonogram</h2>
+  {% if not background %}<p class="flash error">Zadania w tle są wyłączone (KS_BACKGROUND_TASKS=0) – automatyczne kopie nie będą tworzone.</p>{% endif %}
+  <form method="post" action="/admin/backups/settings" class="row">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label class="check"><input type="checkbox" name="enabled" value="1" {% if cfg.enabled %}checked{% endif %}> Codzienna kopia automatyczna</label>
+    <div class="field" style="max-width:160px"><label for="h">Godzina (0-23)</label><input id="h" name="hour" type="number" min="0" max="23" value="{{ cfg.hour }}"></div>
+    <div class="field" style="max-width:200px"><label for="k">Liczba przechowywanych kopii</label><input id="k" name="keep" type="number" min="1" max="365" value="{{ cfg.keep }}"></div>
+    <button type="submit" class="secondary">Zapisz</button>
+  </form>
+  {% if last %}<p class="help">Ostatnia kopia: {{ last.at|dt }} – {% if last.ok %}✅ {{ last.name }}{% else %}❌ {{ last.error }}{% endif %}</p>{% endif %}
+</div>
+
+<div class="card">
+  <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:10px">
+    <h2 style="margin:0">Kopie na serwerze</h2>
+    <form method="post" action="/admin/backups/create" class="inline">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button type="submit">Utwórz kopię teraz</button>
+    </form>
+  </div>
+  {% if backups %}
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Plik</th><th>Utworzono</th><th>Rozmiar</th><th></th></tr></thead>
+    <tbody>
+    {% for b in backups %}
+      <tr>
+        <td class="mono">{{ b.name }}</td><td>{{ b.created_at|dt }}</td><td>{{ b.size|size }}</td>
+        <td style="text-align:right;white-space:nowrap">
+          <a href="/admin/backups/{{ b.name }}/download">Pobierz</a>
+          <form method="post" action="/admin/backups/{{ b.name }}/delete" class="inline" style="margin-left:10px">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <button type="submit" class="secondary small">Usuń</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="muted" style="margin:0">Brak kopii.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>♻️ Przywracanie</h2>
+  <p class="muted" style="margin-top:0">Pojedynczy sejf użytkownika przywrócisz w panelu (Użytkownicy → użytkownik → Historia wersji → Przywróć).
+    Cały serwer przywraca się z terminala – usługa musi być zatrzymana:</p>
+  <pre class="mono" style="background:var(--bg);padding:12px;border-radius:8px;overflow-x:auto">sudo systemctl stop keystead
+sudo keystead-admin restore-backup /var/lib/keystead/backups/&lt;plik&gt;.tar.gz
+sudo systemctl start keystead</pre>
+  <p class="help">Poprzednie dane zostają zachowane w katalogu <span class="mono">/var/lib/keystead/.before-restore-…</span>, kopie zapasowe zostają na miejscu.</p>
+</div>
+{% endblock %}

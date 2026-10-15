@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Raport bezpieczeństwa{% endblock %}
+{% block nav_reports %}active{% endblock %}
+{% block content %}
+<h1>Raport bezpieczeństwa</h1>
+<p class="sub">Zbiorcze wyniki audytu sejfów przesyłane przez aplikacje użytkowników. Serwer otrzymuje <b>wyłącznie liczby</b> –
+  nigdy hasła, nazwy kont ani adresy stron.</p>
+
+{% if not enabled %}
+<div class="flash error">Raporty są wyłączone w politykach bezpieczeństwa. <a href="/admin/settings#polityki">Włącz je</a>, aby aplikacje zaczęły je przesyłać.</div>
+{% endif %}
+
+<div class="grid">
+  <div class="stat"><b>{% if summary.avg is not none %}{{ summary.avg }}/100{% else %}—{% endif %}</b><span>Średni wynik firmy</span></div>
+  <div class="stat"><b>{{ summary.count }}</b><span>Użytkownicy z raportem</span></div>
+  <div class="stat"><b>{{ summary.breached }}</b><span>Hasła w wyciekach</span></div>
+  <div class="stat"><b>{{ summary.reused }} / {{ summary.weak }}</b><span>Powtórzone / słabe</span></div>
+</div>
+
+<div class="card">
+  <h2>Kto wymaga uwagi</h2>
+  <p class="muted" style="margin-top:0">Posortowane od najniższego wyniku.</p>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Użytkownik</th><th>Wynik</th><th>Wycieki</th><th>Powtórzone</th><th>Słabe</th><th class="hide-sm">Bez 2FA</th><th class="hide-sm">Stare</th><th class="hide-sm">Raport z</th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr>
+        <td><a href="/admin/users/{{ r.user_id }}"><b>{{ r.display_name }}</b></a><br><span class="muted mono">{{ r.username }}</span></td>
+        {% if r.report %}
+        <td><span class="score {{ 'good' if r.report.score >= 80 else ('mid' if r.report.score >= 50 else 'bad') }}">{{ r.report.score }}</span>
+          <div class="meter"><span style="width:{{ r.report.score }}%"></span></div></td>
+        <td>{% if r.report.breached %}<span class="badge off">{{ r.report.breached }}</span>{% else %}0{% endif %}{% if not r.report.hibp_checked %} <span class="muted" title="Bez sprawdzenia wycieków">?</span>{% endif %}</td>
+        <td>{{ r.report.reused }}</td><td>{{ r.report.weak }}</td>
+        <td class="hide-sm">{{ r.report.missing_totp }}</td><td class="hide-sm">{{ r.report.stale }}</td>
+        <td class="hide-sm">{{ r.report.received_at|dt }}</td>
+        {% else %}
+        <td colspan="7" class="muted">brak raportu</td>
+        {% endif %}
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endblock %}

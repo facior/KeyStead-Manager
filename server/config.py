@@ -36,6 +36,8 @@ class ServerConfig:
     # Adres, pod którym użytkownicy łączą się z serwerem (wyświetlany w panelu przy kodach aktywacyjnych)
     public_url: str = ""
     enrollment_ttl_hours: int = 24
+    # Zadania w tle (kopie, kontrola dysku, aktualizacje) – włączone w usłudze, wyłączone w testach
+    background_tasks: bool = False
 
     @classmethod
     def from_env(cls) -> "ServerConfig":
@@ -53,4 +55,5 @@ class ServerConfig:
             tls_key=env("KS_TLS_KEY", ""),
             public_url=env("KS_PUBLIC_URL", ""),
             enrollment_ttl_hours=int(env("KS_ENROLLMENT_TTL_HOURS", "24")),
+            background_tasks=env("KS_BACKGROUND_TASKS", "1") not in ("0", "false", "no"),
         )

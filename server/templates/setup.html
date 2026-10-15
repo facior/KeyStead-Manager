@@ -1,48 +1,54 @@
 {% extends "base.html" %}
-{% block title %}Pierwsza konfiguracja{% endblock %}
+{% block title %}{% if mode == 'invite' %}Zaproszenie{% else %}Pierwsza konfiguracja{% endif %}{% endblock %}
 {% block content %}
 <div class="auth">
   <div class="card">
-    <h1>🛡️ Pierwsza konfiguracja</h1>
+    <h1>🛡️ {% if mode == 'invite' %}Zaproszenie do panelu{% else %}Pierwsza konfiguracja{% endif %}</h1>
     {% if step == 1 %}
-    <p class="sub">Utwórz konto administratora serwera.</p>
-    {% if error %}<div class="flash error">{{ error }}</div>{% endif %}
-    <form method="post" action="/admin/setup" autocomplete="off">
-      <div class="field">
-        <label for="t">Token konfiguracyjny</label>
-        <input id="t" name="setup_token" required class="mono" placeholder="wypisany przez instalator">
-        <span class="muted" style="font-size:12px">Brak tokenu? Na serwerze: <span class="mono">sudo keystead-admin setup-token</span></span>
-      </div>
-      <div class="field">
-        <label for="u">Login administratora</label>
-        <input id="u" name="username" required value="{{ username or 'admin' }}" pattern="[a-z0-9][a-z0-9_.\-]{1,31}">
-      </div>
-      <div class="field">
-        <label for="p">Hasło (min. 12 znaków)</label>
-        <input id="p" name="password" type="password" required minlength="12" autocomplete="new-password">
-      </div>
-      <div class="field">
-        <label for="p2">Powtórz hasło</label>
-        <input id="p2" name="password2" type="password" required minlength="12" autocomplete="new-password">
-      </div>
-      <button type="submit">Dalej: logowanie dwuskładnikowe →</button>
-    </form>
+      {% if mode == 'invite' %}
+      <p class="sub">Utwórz swoje konto w panelu administratora. Rola: <b>{{ invite_role }}</b>.</p>
+      {% else %}
+      <p class="sub">Utwórz konto administratora serwera.</p>
+      {% endif %}
+      {% if error %}<div class="flash error">{{ error }}</div>{% endif %}
+      <form method="post" action="{% if mode == 'invite' %}/admin/invite/{{ invite_token }}{% else %}/admin/setup{% endif %}" autocomplete="off">
+        {% if mode != 'invite' %}
+        <div class="field">
+          <label for="t">Token konfiguracyjny</label>
+          <input id="t" name="setup_token" required class="mono" placeholder="wypisany przez instalator">
+          <span class="muted" style="font-size:12px">Brak tokenu? Na serwerze: <span class="mono">sudo keystead-admin setup-token</span></span>
+        </div>
+        {% endif %}
+        <div class="field">
+          <label for="u">Login</label>
+          <input id="u" name="username" required value="{{ username or ('admin' if mode != 'invite' else '') }}" pattern="[a-z0-9][a-z0-9_.\-]{1,31}">
+        </div>
+        <div class="field">
+          <label for="p">Hasło (min. 12 znaków)</label>
+          <input id="p" name="password" type="password" required minlength="12" autocomplete="new-password">
+        </div>
+        <div class="field">
+          <label for="p2">Powtórz hasło</label>
+          <input id="p2" name="password2" type="password" required minlength="12" autocomplete="new-password">
+        </div>
+        <button type="submit">Dalej: logowanie dwuskładnikowe →</button>
+      </form>
     {% else %}
-    <p class="sub">Krok 2: zeskanuj kod w aplikacji uwierzytelniającej (Google Authenticator, Microsoft Authenticator, Aegis, 1Password…).</p>
-    {% if error %}<div class="flash error">{{ error }}</div>{% endif %}
-    {% if qr %}<div style="text-align:center;margin:8px 0 12px">{{ qr|safe }}</div>{% endif %}
-    <div class="field">
-      <label>Klucz do wpisania ręcznie</label>
-      <div class="mono" style="word-break:break-all;background:var(--bg);padding:10px;border-radius:8px;user-select:all">{{ secret }}</div>
-    </div>
-    <form method="post" action="/admin/setup/confirm" autocomplete="off">
-      <input type="hidden" name="pid" value="{{ pid }}">
+      <p class="sub">Zeskanuj kod w aplikacji uwierzytelniającej (Google Authenticator, Microsoft Authenticator, Aegis, 1Password…).</p>
+      {% if error %}<div class="flash error">{{ error }}</div>{% endif %}
+      {% if qr %}<div style="text-align:center;margin:8px 0 12px">{{ qr|safe }}</div>{% endif %}
       <div class="field">
-        <label for="c">Kod z aplikacji (6 cyfr)</label>
-        <input id="c" name="code" required inputmode="numeric" pattern="[0-9 ]{6,7}" autofocus class="mono">
+        <label>Klucz do wpisania ręcznie</label>
+        <div class="mono" style="word-break:break-all;background:var(--bg);padding:10px;border-radius:8px;user-select:all">{{ secret }}</div>
       </div>
-      <button type="submit">Utwórz konto administratora</button>
-    </form>
+      <form method="post" action="/admin/setup/confirm" autocomplete="off">
+        <input type="hidden" name="pid" value="{{ pid }}">
+        <div class="field">
+          <label for="c">Kod z aplikacji (6 cyfr)</label>
+          <input id="c" name="code" required inputmode="numeric" pattern="[0-9 ]{6,7}" autofocus class="mono">
+        </div>
+        <button type="submit">Utwórz konto</button>
+      </form>
     {% endif %}
   </div>
 </div>

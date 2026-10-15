@@ -4,17 +4,25 @@
 {% block content %}
 <p><a href="/admin">← Użytkownicy</a></p>
 <h1>{{ user.display_name }}
-  {% if user.disabled %}<span class="badge off">zablokowane</span>{% else %}<span class="badge ok">aktywne</span>{% endif %}</h1>
-<p class="sub mono">{{ user.username }} · utworzono {{ user.created_at|dt }}{% if user.created_by %} przez {{ user.created_by }}{% endif %}</p>
+  {% if user.disabled %}<span class="badge off">zablokowane</span>{% else %}<span class="badge ok">aktywne</span>{% endif %}
+  {% if has_2fa %}<span class="badge ok">2FA</span>{% endif %}</h1>
+<p class="sub mono">{{ user.username }}{% if user.email %} · {{ user.email }}{% endif %} · utworzono {{ user.created_at|dt }}{% if user.created_by %} przez {{ user.created_by }}{% endif %}</p>
 
 <div class="card">
   <h2>📱 Dodaj urządzenie</h2>
   <p class="muted" style="margin-top:0">Wygeneruj jednorazowy kod i przekaż go użytkownikowi. Użytkownik wpisuje go w aplikacji
-    (ekran logowania → zakładka <b>🌐 Serwer</b>). Kod jest ważny przez ograniczony czas i działa tylko raz.</p>
+    (ekran logowania → zakładka <b>🌐 Serwer</b>). Kod jest ważny przez ograniczony czas i działa tylko raz.
+    {% if policy.max_devices_per_user %}Limit urządzeń na konto: {{ policy.max_devices_per_user }}.{% endif %}
+    {% if policy.require_user_2fa %}Dodanie urządzenia wymaga kodu 2FA użytkownika{% if not has_2fa %} (skonfiguruje go przy pierwszym urządzeniu){% endif %}.{% endif %}</p>
   <div class="row">
     <form method="post" action="/admin/users/{{ user.user_id }}/code" class="inline">
       <input type="hidden" name="csrf" value="{{ csrf }}">
       <button type="submit" {% if user.disabled %}disabled{% endif %}>Wygeneruj kod aktywacyjny</button>
+    </form>
+    <form method="post" action="/admin/users/{{ user.user_id }}/code/email" class="inline">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button type="submit" class="secondary" {% if user.disabled or not user.email or not email_ready %}disabled{% endif %}
+        title="{% if not user.email %}Brak adresu e-mail użytkownika{% elif not email_ready %}Skonfiguruj SMTP w Ustawieniach{% endif %}">✉️ Wyślij nowy kod e-mailem</button>
     </form>
     {% if codes %}
     <form method="post" action="/admin/users/{{ user.user_id }}/codes/revoke" class="inline">
@@ -42,7 +50,7 @@
         <td class="hide-sm">{{ d.created_at|dt }}</td>
         <td>{{ d.last_seen|dt }}</td>
         <td style="text-align:right">
-          {% if not d.revoked %}
+          {% if not d.revoked and is_admin %}
           <form method="post" action="/admin/devices/{{ d.device_id }}/revoke" class="inline">
             <input type="hidden" name="csrf" value="{{ csrf }}">
             <button type="submit" class="secondary small">Odetnij dostęp</button>
@@ -60,29 +68,75 @@
 </div>
 
 <div class="card">
-  <h2>🔐 Sejf</h2>
+  <h2>🛡️ Wynik bezpieczeństwa</h2>
+  {% if report %}
+  <p style="margin-top:0"><span class="score {{ 'good' if report.score >= 80 else ('mid' if report.score >= 50 else 'bad') }}">{{ report.score }}/100</span>
+    <span class="muted"> · {{ report.total }} wpisów · raport z {{ report.received_at|dt }} ({{ report.device }})</span></p>
+  <p class="muted" style="margin:0">Wycieki: <b>{{ report.breached }}</b>{% if not report.hibp_checked %} (nie sprawdzono){% endif %} ·
+    powtórzone: <b>{{ report.reused }}</b> · słabe: <b>{{ report.weak }}</b> · bez 2FA: <b>{{ report.missing_totp }}</b> · stare: <b>{{ report.stale }}</b></p>
+  {% else %}
+  <p class="muted" style="margin:0">Brak raportu – aplikacja użytkownika prześle go po synchronizacji (jeśli raporty są włączone w politykach).</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>🔐 Sejf i historia wersji</h2>
   {% if meta %}
-  <p style="margin-top:0">Bieżąca wersja <b>v{{ meta.version }}</b> · {{ meta.size|size }} · zmieniono {{ meta.updated_at|dt }} z urządzenia „{{ meta.updated_by }}”.</p>
-  <p class="muted">Ostatnie wersje:
-    {% for h in history %}<span class="mono">v{{ h.version }}</span> ({{ h.updated_at|dt }}, {{ h.updated_by }}){% if not loop.last %} · {% endif %}{% endfor %}</p>
-  <p class="muted" style="margin-bottom:0">Zawartość jest zaszyfrowana hasłem głównym użytkownika – nie da się jej odczytać na serwerze.</p>
+  <p style="margin-top:0">Bieżąca wersja <b>v{{ meta.version }}</b> · {{ meta.size|size }} · zmieniono {{ meta.updated_at|dt }} („{{ meta.updated_by }}”).</p>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Wersja</th><th>Zapisano</th><th class="hide-sm">Urządzenie</th><th class="hide-sm">Rozmiar</th><th></th></tr></thead>
+    <tbody>
+    {% for h in history %}
+      <tr>
+        <td class="mono">v{{ h.version }}</td><td>{{ h.updated_at|dt }}</td><td class="hide-sm">{{ h.updated_by }}</td><td class="hide-sm">{{ h.size|size }}</td>
+        <td style="text-align:right">
+          {% if h.version == meta.version %}<span class="muted">bieżąca</span>
+          {% elif is_admin %}
+          <form method="post" action="/admin/users/{{ user.user_id }}/restore/{{ h.version }}" class="inline">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <button type="submit" class="secondary small">Przywróć</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p class="muted" style="margin-bottom:0">Przywrócenie zapisuje wybraną wersję jako nową – nic nie jest usuwane. Zawartość jest zaszyfrowana hasłem głównym użytkownika i nie da się jej odczytać na serwerze.</p>
   {% else %}
   <p class="muted" style="margin:0">Użytkownik nie wysłał jeszcze sejfu.</p>
   {% endif %}
 </div>
 
+{% if is_admin %}
+<div class="card">
+  <h2>✏️ Dane konta</h2>
+  <form method="post" action="/admin/users/{{ user.user_id }}/profile" class="row" autocomplete="off">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="field"><label for="dn">Imię i nazwisko / opis</label><input id="dn" name="display_name" value="{{ user.display_name }}"></div>
+    <div class="field"><label for="em">E-mail</label><input id="em" name="email" type="email" value="{{ user.email or '' }}"></div>
+    <button type="submit" class="secondary">Zapisz</button>
+  </form>
+  {% if has_2fa %}
+  <form method="post" action="/admin/users/{{ user.user_id }}/2fa/reset" style="margin-top:12px">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button type="submit" class="secondary">Zresetuj 2FA użytkownika (zgubiony telefon)</button>
+  </form>
+  {% endif %}
+</div>
+
 <div class="card danger-zone">
   <h2>⚠️ Strefa zagrożenia</h2>
-  <div class="row" style="align-items:flex-start">
-    <form method="post" action="/admin/users/{{ user.user_id }}/disable" class="inline">
-      <input type="hidden" name="csrf" value="{{ csrf }}">
-      {% if user.disabled %}
-      <button type="submit" class="secondary">Odblokuj konto</button>
-      {% else %}
-      <button type="submit" class="secondary">Zablokuj konto (wszystkie urządzenia tracą dostęp)</button>
-      {% endif %}
-    </form>
-  </div>
+  <form method="post" action="/admin/users/{{ user.user_id }}/disable" class="inline">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    {% if user.disabled %}
+    <button type="submit" class="secondary">Odblokuj konto</button>
+    {% else %}
+    <button type="submit" class="secondary">Zablokuj konto (wszystkie urządzenia tracą dostęp)</button>
+    {% endif %}
+  </form>
   <form method="post" action="/admin/users/{{ user.user_id }}/delete" class="row" style="margin-top:14px" autocomplete="off">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <div class="field">
@@ -92,4 +146,5 @@
     <button type="submit" class="danger">Usuń nieodwracalnie</button>
   </form>
 </div>
+{% endif %}
 {% endblock %}
