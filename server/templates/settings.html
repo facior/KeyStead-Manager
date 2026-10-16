@@ -36,7 +36,7 @@
   <form method="post" action="/admin/settings/policy">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     {% set p = cfg.policy %}
-    <div class="row">
+    <div class="row cols">
       <div class="field"><label for="al">Maks. czas do automatycznej blokady (min)</label>
         <input id="al" name="max_auto_lock_minutes" type="number" min="0" max="1440" value="{{ p.max_auto_lock_minutes }}">
         <p class="help">0 = bez limitu. Użytkownik może ustawić krótszy czas, ale nie dłuższy.</p></div>
@@ -50,7 +50,7 @@
         </select>
         <p class="help">Słabsze hasło główne trzeba będzie zmienić przy najbliższym odblokowaniu.</p></div>
     </div>
-    <div class="row" style="margin-top:10px">
+    <div class="row cols" style="margin-top:10px">
       <div class="field"><label for="mo">Maks. czas pracy bez połączenia z serwerem (godz.)</label>
         <input id="mo" name="max_offline_hours" type="number" min="0" max="8760" value="{{ p.max_offline_hours }}">
         <p class="help">Po tym czasie lokalna kopia nie otworzy się bez potwierdzenia dostępu na serwerze. 0 = bez limitu.</p></div>
@@ -68,7 +68,7 @@
       <label class="check"><input type="checkbox" name="allow_attachments" value="1" {% if p.allow_attachments %}checked{% endif %}> Pozwól na załączniki (zaszyfrowane pliki przy wpisach)</label>
       <label class="check"><input type="checkbox" name="allow_site_icons" value="1" {% if p.allow_site_icons %}checked{% endif %}> Pokazuj ikony stron (aplikacja pobiera je bezpośrednio ze stron wpisów – wyłącz, jeśli komputery nie mogą łączyć się z internetem)</label>
     </div>
-    <div class="row" style="margin-top:10px">
+    <div class="row cols" style="margin-top:10px">
       <div class="field"><label for="qd">Windows Hello – hasło główne co (dni)</label>
         <input id="qd" name="quick_unlock_days" type="number" min="1" max="90" value="{{ p.quick_unlock_days }}">
         <p class="help">Po tylu dniach użytkownik musi wpisać hasło główne (żeby go nie zapomniał).</p></div>

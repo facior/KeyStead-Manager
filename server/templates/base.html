@@ -65,8 +65,20 @@
   .badge.ok { background: rgba(16,185,129,.15); color: var(--ok); }
   .badge.off { background: rgba(244,63,94,.15); color: var(--danger); }
   form.inline { display: inline; }
-  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
-  .field { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 180px; }
+  .row { display: flex; gap: 10px 12px; flex-wrap: wrap; align-items: flex-start; }
+  /* przyciski i przełączniki obok pól: na wysokości pola wejściowego (pod etykietą), niezależnie od tekstów pomocy */
+  .row:has(> .field) > button, .row:has(> .field) > form.inline { margin-top: 22px; }
+  .row:has(> .field) > a { margin-top: 22px; display: inline-block; padding: 10px 2px; }
+  .row:has(> .field) > .check { margin-top: 31px; }
+  /* siatka pól: etykiety, pola i opisy w osobnych, wspólnych wierszach – pola zawsze w jednej linii */
+  .row.cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 14px; }
+  .row.cols > .field { min-width: 0; display: grid; grid-row: span 3; grid-template-rows: subgrid; gap: 4px; align-content: start;
+                       margin-bottom: 12px; }
+  .row.cols > .field > .help { margin: 0; }
+  @media (max-width: 900px) { .row.cols { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 560px) { .row.cols { grid-template-columns: 1fr; } }
+  .field { display: flex; flex-direction: column; gap: 4px; flex: 1 1 180px; min-width: 180px; }
+  .field label { min-height: 18px; }
   label { color: var(--muted); font-size: 12px; font-weight: 600; }
   input { background: var(--card); border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: 9px 11px; font: inherit; width: 100%; }
   input:focus { outline: 2px solid var(--primary); outline-offset: 0; border-color: var(--primary); }
