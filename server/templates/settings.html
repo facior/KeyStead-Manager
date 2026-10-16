@@ -99,6 +99,45 @@
     <label class="check"><input type="checkbox" name="enabled" value="1" {% if r.enabled %}checked{% endif %}> Włącz odzyskiwanie dostępu przez firmę</label>
     <button type="submit" style="margin-top:12px">Zapisz</button>
   </form>
+
+  <h2 style="font-size:15px;margin-top:22px">🔑 Reset hasła z panelu (klucz firmy na serwerze)</h2>
+  <p class="sub" style="margin-top:0">Klucz prywatny firmy zapisany na serwerze, zaszyfrowany <b>hasłem działu IT</b>. Administrator resetuje wtedy hasło
+    użytkownika na jego karcie, podając tylko hasło IT. Wygodniej, ale kto przejmie serwer i pozna hasło IT, może otworzyć sejfy –
+    hasło IT musi być długie, znane tylko działowi IT i nie może być nigdzie indziej używane.</p>
+  {% if escrow_key_id %}
+    <p class="muted">✅ Klucz firmy jest zapisany na serwerze (odcisk <span class="mono">{{ escrow_key_id }}</span>).</p>
+    {% if recovery_key_id and recovery_key_id != escrow_key_id %}
+    <p class="flash error">⚠️ Klucz publiczny powyżej (<span class="mono">{{ recovery_key_id }}</span>) różni się od klucza zapisanego na serwerze –
+      reset z panelu nie zadziała dla nowych sejfów. Zapisz ponownie właściwy klucz.</p>
+    {% endif %}
+    <div class="row">
+      <form method="get" action="/admin/settings/recovery/escrow.ksorgkey" class="inline">
+        <button type="submit" class="secondary">⬇️ Pobierz kopię pliku klucza</button>
+      </form>
+      <form method="post" action="/admin/settings/recovery/escrow/remove" class="inline">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button type="submit" class="secondary">Usuń klucz z serwera</button>
+      </form>
+    </div>
+  {% else %}
+    {% if recovery_key_id %}
+    <p class="muted">Masz już klucz firmy (<span class="mono">{{ recovery_key_id }}</span>) – wgraj jego plik <b>.ksorgkey</b> i podaj hasło, którym jest zabezpieczony.
+      Ono staje się hasłem działu IT. Sejfy z tym kluczem od razu dadzą się resetować.</p>
+    <form method="post" action="/admin/settings/recovery/escrow" enctype="multipart/form-data" autocomplete="off">
+      <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="mode" value="upload">
+      <div class="field"><label for="kf">Plik klucza (.ksorgkey)</label><input id="kf" type="file" name="key_file" accept=".ksorgkey" required></div>
+      <div class="field"><label for="ip0">Hasło do klucza (hasło działu IT)</label><input id="ip0" type="password" name="it_password" required></div>
+      <button type="submit">Zapisz klucz na serwerze</button>
+    </form>
+    <p class="help">Nie masz pliku? Możesz wygenerować nowy klucz poniżej – aplikacje użytkowników poproszą wtedy o potwierdzenie nowego odcisku.</p>
+    {% endif %}
+    <form method="post" action="/admin/settings/recovery/escrow" autocomplete="off" style="margin-top:10px">
+      <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="mode" value="generate">
+      <div class="field"><label for="ip1">Nowe hasło działu IT (min. 12 znaków)</label><input id="ip1" type="password" name="it_password" minlength="12" required></div>
+      <div class="field"><label for="ip2">Powtórz hasło działu IT</label><input id="ip2" type="password" name="it_password2" minlength="12" required></div>
+      <button type="submit" {% if recovery_key_id %}class="secondary"{% endif %}>{% if recovery_key_id %}Wygeneruj NOWY klucz firmy{% else %}Wygeneruj klucz firmy i włącz odzyskiwanie{% endif %}</button>
+    </form>
+  {% endif %}
 </div>
 
 <div class="card" id="powiadomienia">

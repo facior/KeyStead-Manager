@@ -109,6 +109,13 @@ próbach; sesja wygasa po 30 min bezczynności; ochrona CSRF; brak JavaScriptu i
    (pakiet + plik klucza + hasło) → **Wgraj wynik** w panelu → przekaż użytkownikowi hasło tymczasowe.
    Przy odblokowaniu aplikacja wymusi ustawienie własnego hasła.
 
+**Reset hasła z panelu (od 1.6.0):** w **Ustawienia → Odzyskiwanie dostępu** można zapisać klucz firmy na serwerze,
+zaszyfrowany **hasłem działu IT** (wygenerować nowy albo wgrać istniejący plik `.ksorgkey`). Wtedy na karcie użytkownika
+wystarczy podać hasło IT i kliknąć **Resetuj hasło główne** – panel pokaże hasło tymczasowe, a aplikacja przy logowaniu
+wymusi jego zmianę. Wygodniej, ale kto przejmie serwer i pozna hasło IT, może otworzyć sejfy: hasło IT musi być długie
+i znane tylko działowi IT. 5 błędnych haseł IT blokuje reset na 15 minut. Resetować da się sejfy, które zawierają już
+klucz firmy – karta użytkownika pokazuje, czy tak jest.
+
 Użytkownicy mogą też utworzyć **osobisty kod odzyskiwania** (Ustawienia w aplikacji) i odzyskać dostęp sami
 („Nie pamiętam hasła” na ekranie logowania). Obie funkcje wymagają aplikacji 1.2+ na wszystkich urządzeniach.
 

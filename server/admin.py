@@ -41,6 +41,7 @@ from server.security import RateLimiter, client_ip, ip_allowed, is_public_edge_r
 from server.settings import EVENT_LABELS, org_key_id
 from server.storage import InvalidVaultError, VersionConflictError
 from server.updater import STEPS, UpdateError
+from server import vault_reset
 
 SESSION_COOKIE = "ks_admin"
 SESSION_IDLE_SECONDS = 30 * 60
@@ -413,6 +414,8 @@ def create_admin_router(ctx: ServerContext) -> APIRouter:
                       email_ready=email_ready,
                       policy=settings.section("policy"),
                       recovery_enabled=bool(settings.section("recovery").get("enabled")),
+                      recovery_status=vault_reset.vault_recovery_status(store.read_version(user_id)) if store.get_meta(user_id) else None,
+                      escrow_key_id=(_escrow() or {}).get("key_id"),
                       attachments_used=ctx.attachments.usage(user_id))
 
     def _user(sess_err, user_id):
@@ -792,6 +795,7 @@ def create_admin_router(ctx: ServerContext) -> APIRouter:
         cfg = settings.all()
         return render(request, "settings.html", sess, cfg=cfg, event_labels=EVENT_LABELS,
                       recovery_key_id=org_key_id(cfg["recovery"].get("public_key", "")),
+                      escrow_key_id=(_escrow() or {}).get("key_id"),
                       network={"host": config.host, "port": config.port, "api": ", ".join(config.api_allowed_networks),
                                "admin": ", ".join(config.admin_allowed_networks), "tls": bool(config.tls_cert)})
 
@@ -866,6 +870,122 @@ def create_admin_router(ctx: ServerContext) -> APIRouter:
         flash(sess, "ok", f"Dostęp przywrócony (wersja v{meta['version']}). Przekaż użytkownikowi hasło tymczasowe – "
                           "aplikacja wymusi jego zmianę przy pierwszym odblokowaniu.")
         return redirect(f"/admin/users/{user_id}")
+
+    # ------------------------------------------------------------ reset hasła z panelu (klucz firmy na serwerze)
+    def _escrow() -> Optional[Dict[str, Any]]:
+        key_file = settings.section("recovery").get("escrow")
+        return key_file if isinstance(key_file, dict) and key_file.get("type") == "keystead-org-recovery-key" else None
+
+    @router.post("/settings/recovery/escrow")
+    async def settings_recovery_escrow(request: Request, csrf: str = Form(""), mode: str = Form("generate"),
+                                       it_password: str = Form(""), it_password2: str = Form(""),
+                                       key_file: Optional[UploadFile] = File(None)):
+        """Klucz firmy zaszyfrowany hasłem działu IT, przechowywany na serwerze – reset hasła jednym formularzem."""
+        sess, err = guard(request, csrf=csrf)
+        if err:
+            return err
+        current = settings.section("recovery").get("public_key", "")
+        try:
+            if mode == "upload":
+                data = json.loads((await key_file.read(64 * 1024)).decode("utf-8")) if key_file else {}
+                await asyncio.to_thread(vault_reset.load_private_key, data, it_password)  # sprawdza hasło IT
+                public = data["public"]
+                if current and org_key_id(current) != org_key_id(public):
+                    raise vault_reset.ResetError(
+                        f"Ten plik klucza ({org_key_id(public)}) nie pasuje do klucza ustawionego na serwerze "
+                        f"({org_key_id(current)}). Wybierz właściwy plik albo wygeneruj nowy klucz.")
+                escrow = data
+            else:
+                if it_password != it_password2:
+                    raise vault_reset.ResetError("Hasła działu IT nie są identyczne.")
+                public, escrow = await asyncio.to_thread(vault_reset.generate_key_file, it_password)
+        except (vault_reset.ResetError, ValueError, KeyError, TypeError, UnicodeDecodeError) as e:
+            msg = str(e) if isinstance(e, vault_reset.ResetError) else "Nieprawidłowy plik klucza (.ksorgkey)."
+            flash(sess, "error", msg)
+            return redirect("/admin/settings#odzyskiwanie")
+        settings.update("recovery", {"enabled": True, "public_key": public, "escrow": escrow})
+        audit.add("recovery_escrow_set", actor=actor(sess), ip=client_ip(request), mode=mode,
+                  key_id=org_key_id(public), previous_key_id=org_key_id(current))
+        changed = bool(current) and org_key_id(current) != org_key_id(public)
+        flash(sess, "ok", f"Klucz firmy zapisany na serwerze (odcisk {org_key_id(public)}). Reset hasła jest dostępny "
+                          "na karcie użytkownika. Pobierz kopię pliku klucza i schowaj ją poza serwerem." + (
+                              " Klucz się zmienił – aplikacje użytkowników poproszą o potwierdzenie nowego odcisku."
+                              if changed else ""))
+        return redirect("/admin/settings#odzyskiwanie")
+
+    @router.get("/settings/recovery/escrow.ksorgkey")
+    async def settings_recovery_escrow_download(request: Request):
+        sess, err = guard(request)
+        if err:
+            return err
+        key_file = _escrow()
+        if key_file is None:
+            return redirect("/admin/settings#odzyskiwanie")
+        audit.add("recovery_escrow_downloaded", actor=actor(sess), ip=client_ip(request), key_id=key_file.get("key_id"))
+        return Response(json.dumps(key_file, indent=2), media_type="application/json", headers={
+            "Content-Disposition": 'attachment; filename="KeyStead - klucz odzyskiwania firmy.ksorgkey"'})
+
+    @router.post("/settings/recovery/escrow/remove")
+    async def settings_recovery_escrow_remove(request: Request, csrf: str = Form("")):
+        sess, err = guard(request, csrf=csrf)
+        if err:
+            return err
+        settings.update("recovery", {"escrow": None})
+        audit.add("recovery_escrow_removed", actor=actor(sess), ip=client_ip(request))
+        flash(sess, "ok", "Usunięto klucz firmy z serwera. Odzyskiwanie nadal działa plikiem klucza w aplikacji.")
+        return redirect("/admin/settings#odzyskiwanie")
+
+    reset_limiter = RateLimiter(max_failures=5, window_seconds=900, block_seconds=900)
+
+    @router.post("/users/{user_id}/reset-password")
+    async def user_reset_password(request: Request, user_id: str, csrf: str = Form(""), it_password: str = Form(""),
+                                  temp_password: str = Form("")):
+        sess, user, err = _user(guard(request, csrf=csrf), user_id)
+        if err:
+            return err
+        back = redirect(f"/admin/users/{user_id}#odzyskiwanie")
+        limiter_id = f"admin:{sess['username']}"
+        blocked, wait = reset_limiter.is_blocked(limiter_id)
+        if blocked:
+            flash(sess, "error", f"Zbyt wiele błędnych haseł działu IT. Spróbuj za {max(1, wait // 60)} min.")
+            return back
+        key_file = _escrow()
+        meta = store.get_meta(user_id)
+        if key_file is None or not meta:
+            flash(sess, "error", "Reset hasła wymaga klucza firmy zapisanego na serwerze i sejfu użytkownika.")
+            return back
+        temp_password = temp_password.strip() or vault_reset.generate_temp_password()
+        blob = store.read_version(user_id)
+
+        def _work():
+            private = vault_reset.load_private_key(key_file, it_password)
+            return vault_reset.reset_password(blob, private, temp_password)
+
+        try:
+            new_blob = await asyncio.to_thread(_work)
+        except vault_reset.WrongItPassword as e:
+            if reset_limiter.fail(limiter_id):
+                audit.add("admin_login_blocked", actor=actor(sess), ip=client_ip(request), reason="hasło działu IT")
+            audit.add("vault_reset_failed", actor=actor(sess), ip=client_ip(request), user=user_id, reason=str(e))
+            flash(sess, "error", str(e))
+            return back
+        except vault_reset.ResetError as e:
+            flash(sess, "error", str(e))
+            return back
+        reset_limiter.success(limiter_id)
+        try:
+            new_meta = store.write(user_id, new_blob, meta["version"], f"Reset hasła ({sess['username']})")
+        except VersionConflictError:
+            flash(sess, "error", "Sejf użytkownika zmienił się w trakcie resetu – spróbuj ponownie.")
+            return back
+        except InvalidVaultError as e:
+            flash(sess, "error", str(e))
+            return back
+        audit.add("vault_password_reset_by_admin", actor=actor(sess), ip=client_ip(request), user=user_id,
+                  version=new_meta["version"])
+        flash(sess, "temp_password", f"Hasło główne użytkownika {user.get('display_name') or user_id} zostało zresetowane.",
+              code=temp_password)
+        return back
 
     def _int(value: str, default: int, lo: int, hi: int) -> int:
         try:

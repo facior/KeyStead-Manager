@@ -37,10 +37,12 @@ DEFAULTS: Dict[str, Any] = {
         "max_attachment_mb": 10,
         "attachment_quota_mb": 200,
     },
-    # Odzyskiwanie dostępu przez firmę: tylko klucz PUBLICZNY (prywatny ma administrator poza serwerem)
+    # Odzyskiwanie dostępu przez firmę: klucz publiczny dla aplikacji; prywatny ma administrator (plik .ksorgkey)
+    # albo – opcjonalnie – serwer, zaszyfrowany hasłem działu IT („escrow”, reset hasła z panelu)
     "recovery": {
         "enabled": False,
         "public_key": "",
+        "escrow": None,
     },
     "notifications": {
         "email": {
@@ -51,7 +53,7 @@ DEFAULTS: Dict[str, Any] = {
         "events": [
             "admin_login_failed", "admin_login_blocked", "api_ip_blocked", "enroll_ip_blocked",
             "device_enrolled", "devices_revoked_all", "disk_low", "backup_failed", "update_available",
-            "update_finished",
+            "update_finished", "vault_password_reset_by_admin", "vault_reset_failed",
         ],
         "disk_low_percent": 10,
     },
@@ -86,6 +88,8 @@ EVENT_LABELS = {
     "backup_failed": "Nieudana kopia zapasowa serwera",
     "update_available": "Dostępna nowa wersja serwera",
     "update_finished": "Zakończenie aktualizacji serwera (sukces lub błąd)",
+    "vault_password_reset_by_admin": "Reset hasła głównego użytkownika przez administratora",
+    "vault_reset_failed": "Nieudany reset hasła (błędne hasło działu IT)",
 }
 
 

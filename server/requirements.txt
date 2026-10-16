@@ -6,3 +6,4 @@ argon2-cffi>=23.1
 pyotp>=2.9
 segno>=1.6
 fpdf2>=2.7
+cryptography>=42

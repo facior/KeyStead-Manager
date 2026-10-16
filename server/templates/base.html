@@ -136,6 +136,15 @@
       {% if tls_fingerprint %}<br><span class="muted">Jeśli aplikacja zapyta o certyfikat serwera, jego odcisk SHA-256 to:
         <span class="mono" style="word-break:break-all">{{ tls_fingerprint }}</span></span>{% endif %}
     </div>
+    {% elif flash.kind == 'temp_password' %}
+    <div class="flash code">
+      <b>{{ flash.text }}</b><br>
+      Hasło tymczasowe (pokazywane tylko raz):<br>
+      <span class="code-box">{{ flash.code }}</span><br>
+      <span class="muted">Przekaż je użytkownikowi osobiście lub telefonicznie. Loguje się nim w aplikacji
+        (ekran logowania → zakładka <b>🌐 Serwer</b>), a aplikacja od razu każe ustawić własne hasło główne.
+        Na pozostałych urządzeniach użytkownik też musi zalogować się nowym hasłem.</span>
+    </div>
     {% elif flash.kind == 'invite' %}
     <div class="flash code">
       <b>{{ flash.text }}</b><br>

@@ -112,10 +112,39 @@
   {% endif %}
 </div>
 
-{% if is_admin and recovery_enabled and meta %}
+{% if is_admin and meta and (recovery_enabled or escrow_key_id) %}
 <div class="card" id="odzyskiwanie">
-  <h2>🛟 Odzyskiwanie dostępu</h2>
-  <p class="muted" style="margin-top:0">Użytkownik zapomniał hasła głównego? Przywróć dostęp kluczem odzyskiwania firmy:</p>
+  <h2>🛟 Reset hasła głównego</h2>
+  {% set rs = recovery_status %}
+  {% if rs and rs.org_key_id %}
+    {% if escrow_key_id and rs.org_key_id != escrow_key_id %}
+    <p class="flash error" style="margin-top:0">⚠️ Sejf jest zabezpieczony innym kluczem firmy (<span class="mono">{{ rs.org_key_id }}</span>) niż zapisany na serwerze
+      (<span class="mono">{{ escrow_key_id }}</span>). Aplikacja użytkownika przejdzie na nowy klucz po najbliższym odblokowaniu sejfu.</p>
+    {% else %}
+    <p class="muted" style="margin-top:0">✅ Sejf zawiera klucz firmy (<span class="mono">{{ rs.org_key_id }}</span>) – hasło można zresetować.</p>
+    {% endif %}
+  {% else %}
+  <p class="flash error" style="margin-top:0">⚠️ Sejf nie ma jeszcze klucza firmy, więc nie da się zresetować hasła.
+    Aplikacja (KeyStead Manager 1.2 lub nowszy) doda go sama, gdy użytkownik odblokuje sejf przy włączonym odzyskiwaniu dostępu.</p>
+  {% endif %}
+
+  {% if escrow_key_id %}
+  <p class="muted">Użytkownik zapomniał hasła? Podaj hasło działu IT – użytkownik dostanie hasło tymczasowe, a aplikacja przy logowaniu
+    wymusi ustawienie własnego. Zawartość sejfu się nie zmienia.</p>
+  <form method="post" action="/admin/users/{{ user.user_id }}/reset-password" autocomplete="off">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="field"><label for="itp">Hasło działu IT</label>
+      <input id="itp" name="it_password" type="password" required autocomplete="off"></div>
+    <div class="field"><label for="tmp">Hasło tymczasowe dla użytkownika (puste = wygeneruj)</label>
+      <input id="tmp" name="temp_password" minlength="10" autocomplete="off" placeholder="min. 10 znaków"></div>
+    <button type="submit" class="danger" {% if not (rs and rs.org_key_id) %}disabled{% endif %}>🔑 Resetuj hasło główne</button>
+  </form>
+  {% else %}
+  <p class="muted">Aby resetować hasła jednym formularzem, zapisz klucz firmy na serwerze: <a href="/admin/settings#odzyskiwanie">Ustawienia → Odzyskiwanie dostępu</a>.</p>
+  {% endif %}
+
+  {% if recovery_enabled %}
+  <details style="margin-top:12px"><summary class="muted">Metoda z plikiem klucza (bez klucza na serwerze)</summary>
   <ol class="steps" style="margin-bottom:12px">
     <li>Pobierz pakiet odzyskiwania (zaszyfrowany sejf – serwer nie może go odczytać).</li>
     <li>W aplikacji KeyStead Manager: Ustawienia → Odzyskiwanie dostępu → Narzędzia administratora → „Odzyskaj dostęp użytkownika”
@@ -132,7 +161,8 @@
       <button type="submit">Wgraj wynik odzyskiwania</button>
     </form>
   </div>
-  <p class="help">Sejfy użytkowników ze starszą aplikacją (przed włączeniem odzyskiwania) nie zawierają klucza firmy – wtedy odzyskanie nie jest możliwe.</p>
+  </details>
+  {% endif %}
 </div>
 {% endif %}
 
