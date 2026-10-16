@@ -25,6 +25,25 @@ from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatc
 USERNAME_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{1,31}$")
 _ENROLL_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"  # bez mylących znaków 0/O, 1/I/L
 _hasher = PasswordHasher()
+AUDIT_ROTATIONS = 10  # audit.log + 10 archiwalnych plików po 5 MB
+
+
+def totp_step(secret: str, code: str, last_step: int = 0) -> Optional[int]:
+    """
+    Numer 30-sekundowego kroku, do którego pasuje kod (±1 krok tolerancji zegara) albo None.
+    Kod z kroku nie nowszego niż ostatnio użyty jest odrzucany – przechwycony kod nie zadziała drugi raz.
+    """
+    code = (code or "").strip().replace(" ", "")
+    if not secret or not code.isdigit():
+        return None
+    totp = pyotp.TOTP(secret)
+    now = _now()
+    current = totp.timecode(now)
+    for offset in (0, -1, 1):
+        step = current + offset
+        if hmac.compare_digest(totp.generate_otp(step), code):
+            return step if step > int(last_step or 0) else None
+    return None
 
 
 def _now() -> datetime:
@@ -80,6 +99,11 @@ class AuditLog:
         line = json.dumps(record, ensure_ascii=False) + "\n"
         with self._lock:
             if os.path.exists(self.path) and os.path.getsize(self.path) > self.max_bytes:
+                # audit.log.1 … audit.log.N – starsze wpisy przesuwają się, najstarszy plik jest usuwany
+                for i in range(AUDIT_ROTATIONS - 1, 0, -1):
+                    src = f"{self.path}.{i}"
+                    if os.path.exists(src):
+                        os.replace(src, f"{self.path}.{i + 1}")
                 os.replace(self.path, self.path + ".1")
             with open(self.path, "a", encoding="utf-8") as f:
                 f.write(line)
@@ -91,7 +115,7 @@ class AuditLog:
 
     def _read_all(self) -> List[Dict[str, Any]]:
         lines: List[str] = []
-        for path in (self.path + ".1", self.path):
+        for path in [f"{self.path}.{i}" for i in range(AUDIT_ROTATIONS, 0, -1)] + [self.path]:
             try:
                 with open(path, "r", encoding="utf-8") as f:
                     lines.extend(f.readlines())
@@ -237,18 +261,24 @@ class UserStore:
         self._modify(user_id, totp_secret=secret, totp_confirmed=False)
 
     def confirm_totp(self, user_id: str, code: str) -> bool:
-        user = self.get(user_id) or {}
-        secret = user.get("totp_secret")
-        if secret and pyotp.TOTP(secret).verify(code.strip().replace(" ", ""), valid_window=1):
-            self._modify(user_id, totp_confirmed=True)
+        with self.file.lock:
+            user = self.get(user_id) or {}
+            step = totp_step(user.get("totp_secret", ""), code, user.get("totp_last_step", 0))
+            if step is None:
+                return False
+            self._modify(user_id, totp_confirmed=True, totp_last_step=step)
             return True
-        return False
 
     def verify_totp(self, user_id: str, code: str) -> bool:
-        user = self.get(user_id) or {}
-        if not (user.get("totp_secret") and user.get("totp_confirmed")):
-            return False
-        return pyotp.TOTP(user["totp_secret"]).verify((code or "").strip().replace(" ", ""), valid_window=1)
+        with self.file.lock:
+            user = self.get(user_id) or {}
+            if not (user.get("totp_secret") and user.get("totp_confirmed")):
+                return False
+            step = totp_step(user["totp_secret"], code, user.get("totp_last_step", 0))
+            if step is None:
+                return False
+            self._modify(user_id, totp_last_step=step)  # ten sam kod nie zadziała drugi raz
+            return True
 
     def reset_totp(self, user_id: str) -> bool:
         return self._modify(user_id, totp_secret="", totp_confirmed=False)
@@ -357,7 +387,17 @@ class AdminStore:
             password_ok = False
         if not password_ok:
             return False
-        return pyotp.TOTP(admin["totp_secret"]).verify(totp_code.strip().replace(" ", ""), valid_window=1)
+        with self.file.lock:
+            data = self.file.load()
+            rec = next((a for a in data["admins"] if a["username"] == admin["username"]), None)
+            if rec is None:
+                return False
+            step = totp_step(rec["totp_secret"], totp_code, rec.get("totp_last_step", 0))
+            if step is None:
+                return False
+            rec["totp_last_step"] = step  # przechwycony kod nie pozwoli zalogować się drugi raz
+            self.file.save(data)
+            return True
 
     def change_password(self, username: str, new_password: str) -> None:
         if len(new_password) < 12:
@@ -430,6 +470,22 @@ class EnrollmentStore:
                     self.file.save(data)
                     return c["user_id"]
         return None
+
+    def register_failure(self, code: str, max_failures: int) -> bool:
+        """Błędny kod 2FA przy tym kodzie aktywacyjnym. Zwraca True, gdy kod właśnie został unieważniony."""
+        digest = hashlib.sha256(normalize_code(code).encode()).hexdigest()
+        with self.file.lock:
+            data = self.file.load()
+            for c in data["codes"]:
+                if hmac.compare_digest(c["code_sha256"], digest) and not c["used_at"]:
+                    c["totp_failures"] = int(c.get("totp_failures", 0)) + 1
+                    burned = c["totp_failures"] >= max_failures
+                    if burned:
+                        c["used_at"] = _iso(_now())
+                        c["used_by_device"] = "(unieważniony – za dużo błędnych kodów 2FA)"
+                    self.file.save(data)
+                    return burned
+        return False
 
     def peek(self, code: str) -> Optional[str]:
         """Sprawdza kod bez zużywania (np. przed weryfikacją 2FA użytkownika)."""

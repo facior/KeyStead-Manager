@@ -104,6 +104,12 @@ def _bar_chart(points: List[tuple]) -> str:
     return "".join(parts)
 
 
+def _csv_safe(value: Any) -> str:
+    """Komórka CSV zaczynająca się od = + - @ byłaby w Excelu formułą (np. login wpisany przy nieudanym logowaniu)."""
+    text = str(value)
+    return "'" + text if text[:1] in ("=", "+", "-", "@", "\t", "\r") else text
+
+
 def create_admin_router(ctx: ServerContext) -> APIRouter:
     config, store, devices, users, admins = ctx.config, ctx.store, ctx.devices, ctx.users, ctx.admins
     enrollments, audit, settings = ctx.enrollments, ctx.audit, ctx.settings
@@ -411,11 +417,27 @@ def create_admin_router(ctx: ServerContext) -> APIRouter:
             return None, None, redirect("/admin")
         return sess, user, None
 
+    def helpdesk_blocked(sess, user_id: str) -> bool:
+        """
+        Pomoc techniczna wydaje kody tylko dla kont bez urządzeń i bez sejfu (pierwsze uruchomienie).
+        Kod do konta, które już ma sejf, pozwoliłby dołączyć własne urządzenie i pobrać cudzy zaszyfrowany sejf –
+        to może zrobić wyłącznie administrator.
+        """
+        if sess.get("role") == "admin":
+            return False
+        if devices.active_count(user_id) or store.get_meta(user_id):
+            flash(sess, "error", "To konto ma już urządzenia lub sejf – kod aktywacyjny może wygenerować tylko administrator.")
+            audit.add("enrollment_code_denied", actor=actor(sess), user=user_id, reason="rola pomocy technicznej")
+            return True
+        return False
+
     @router.post("/users/{user_id}/code")
     async def new_code(request: Request, user_id: str, csrf: str = Form("")):
         sess, user, err = _user(guard(request, role="any", csrf=csrf), user_id)
         if err:
             return err
+        if helpdesk_blocked(sess, user_id):
+            return redirect(f"/admin/users/{user_id}")
         ttl = int(settings.section("general").get("enrollment_ttl_hours", 24))
         code, rec = enrollments.create(user_id, ttl, sess["username"])
         audit.add("enrollment_code_created", actor=actor(sess), ip=client_ip(request), user=user_id, hint=rec["hint"])
@@ -427,6 +449,8 @@ def create_admin_router(ctx: ServerContext) -> APIRouter:
         sess, user, err = _user(guard(request, role="any", csrf=csrf), user_id)
         if err:
             return err
+        if helpdesk_blocked(sess, user_id):
+            return redirect(f"/admin/users/{user_id}")
         if not user.get("email"):
             flash(sess, "error", "Użytkownik nie ma adresu e-mail – uzupełnij go w danych konta.")
             return redirect(f"/admin/users/{user_id}")
@@ -733,7 +757,8 @@ def create_admin_router(ctx: ServerContext) -> APIRouter:
         writer.writerow(["czas", "zdarzenie", "kto", "adres_ip", "szczegóły"])
         for e in events:
             details = ", ".join(f"{k}={v}" for k, v in e.items() if k not in ("time", "event", "actor", "ip"))
-            writer.writerow([e.get("time", ""), e.get("event", ""), e.get("actor", ""), e.get("ip", ""), details])
+            writer.writerow([_csv_safe(v) for v in (e.get("time", ""), e.get("event", ""), e.get("actor", ""),
+                                                    e.get("ip", ""), details)])
         audit.add("audit_exported", actor=actor(sess), ip=client_ip(request), rows=len(events))
         return Response("﻿" + out.getvalue(), media_type="text/csv; charset=utf-8",
                         headers={"Content-Disposition": f'attachment; filename="keystead-dziennik-{datetime.now():%Y%m%d}.csv"'})
@@ -819,7 +844,7 @@ def create_admin_router(ctx: ServerContext) -> APIRouter:
         settings.update("notifications", {
             "email": email,
             "webhook": {"enabled": bool(form.get("webhook_enabled")), "kind": kind,
-                        "url": str(form.get("webhook_url", "")).strip()},
+                        "url": _http_url(form.get("webhook_url", ""))},  # tylko http(s) – bez file:, ftp: itp.
             "events": [e for e in form.getlist("events") if e in EVENT_LABELS],
             "disk_low_percent": _int(form.get("disk_low_percent"), 10, 1, 90),
         })
@@ -955,6 +980,11 @@ def create_admin_router(ctx: ServerContext) -> APIRouter:
         else:
             try:
                 admins.change_password(sess["username"], new)
+                # Inne sesje tego konta (np. z przejętego komputera) przestają działać
+                current_sid = request.cookies.get(SESSION_COOKIE, "")
+                for sid, s in list(sessions.items()):
+                    if s["username"] == sess["username"] and sid != current_sid:
+                        sessions.pop(sid, None)
                 audit.add("admin_password_changed", actor=actor(sess), ip=client_ip(request))
                 flash(sess, "ok", "Hasło zostało zmienione.")
             except ValueError as e:

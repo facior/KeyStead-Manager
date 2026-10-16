@@ -30,10 +30,15 @@ from server.accounts import new_totp_secret, totp_uri
 from server.admin import admin_security_headers, create_admin_router
 from server.config import ServerConfig
 from server.context import ServerContext
-from server.security import RateLimiter, client_ip, ip_allowed, parse_networks
+from server.security import (BodyLimitMiddleware, RateLimiter, client_ip, ip_allowed, is_public_edge_request,
+                             limiter_key, parse_networks)
 from server.storage import InvalidVaultError, VersionConflictError
 
 log = logging.getLogger("keystead")
+
+DEFAULT_BODY_LIMIT = 64 * 1024        # formularze panelu i JSON API
+LOGO_BODY_LIMIT = 1024 * 1024         # formularz z logo (PNG do 256 KB + narzut multipart)
+MAX_ENROLL_TOTP_FAILURES = 5          # po tylu błędnych kodach 2FA kod aktywacyjny jest unieważniany
 
 
 class EnrollRequest(BaseModel):
@@ -63,6 +68,7 @@ def create_app(config: Optional[ServerConfig] = None) -> FastAPI:
     store, devices, users, enrollments, audit, settings = (
         ctx.store, ctx.devices, ctx.users, ctx.enrollments, ctx.audit, ctx.settings)
     api_networks = parse_networks(config.api_allowed_networks)
+    admin_networks = parse_networks(config.admin_allowed_networks)
     auth_limiter = RateLimiter(max_failures=20, window_seconds=600, block_seconds=900)
     enroll_limiter = RateLimiter(max_failures=10, window_seconds=600, block_seconds=1800)
 
@@ -95,6 +101,10 @@ def create_app(config: Optional[ServerConfig] = None) -> FastAPI:
         path = request.url.path
         if path.startswith("/api/") and not ip_allowed(client_ip(request), api_networks):
             return JSONResponse({"detail": "Dostęp z tej sieci jest zablokowany przez administratora serwera."}, status_code=403)
+        # Panel: kontrola sieci PRZED odczytem i walidacją formularza – z internetu zawsze ta sama odpowiedź 404
+        if path.startswith("/admin") and (not ip_allowed(client_ip(request), admin_networks)
+                                          or is_public_edge_request(request)):
+            return Response("Not Found", status_code=404, media_type="text/plain")
         response = await call_next(request)
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -102,8 +112,18 @@ def create_app(config: Optional[ServerConfig] = None) -> FastAPI:
             admin_security_headers(response)
         return response
 
+    def body_limit(method: str, path: str) -> int:
+        if method == "PUT" and path == f"{API_PREFIX}/vault":
+            return config.max_vault_bytes + 1024
+        if path == "/admin/settings/branding":
+            return LOGO_BODY_LIMIT
+        return DEFAULT_BODY_LIMIT
+
+    # Dodany jako ostatni = działa jako pierwszy (przed odczytem treści przez kogokolwiek)
+    app.add_middleware(BodyLimitMiddleware, limit_for=body_limit)
+
     async def current_device(request: Request, authorization: str = Header(default="")) -> Dict[str, Any]:
-        ip = client_ip(request)
+        ip = limiter_key(client_ip(request))
         blocked, wait = auth_limiter.is_blocked(ip)
         if blocked:
             raise HTTPException(status_code=429, detail=f"Zbyt wiele nieudanych prób. Spróbuj za {wait // 60 + 1} min.")
@@ -111,7 +131,7 @@ def create_app(config: Optional[ServerConfig] = None) -> FastAPI:
         device = devices.authenticate(token.strip()) if scheme.lower() == "bearer" else None
         if device is None or not users.is_active(device["user_id"]):
             if auth_limiter.fail(ip):
-                audit.add("api_ip_blocked", ip=ip, reason="nieudane uwierzytelnienia")
+                audit.add("api_ip_blocked", ip=client_ip(request), reason="nieudane uwierzytelnienia")
             await asyncio.sleep(0.5)  # spowolnienie prób zgadywania
             detail = ("Konto zostało zablokowane przez administratora." if device is not None
                       else "Nieprawidłowy lub odwołany token urządzenia.")
@@ -148,14 +168,18 @@ def create_app(config: Optional[ServerConfig] = None) -> FastAPI:
     @app.post(f"{API_PREFIX}/enroll")
     async def enroll(body: EnrollRequest, request: Request):
         ip = client_ip(request)
-        blocked, wait = enroll_limiter.is_blocked(ip)
+        key = limiter_key(ip)
+        blocked, wait = enroll_limiter.is_blocked(key)
         if blocked:
             raise HTTPException(status_code=429, detail=f"Zbyt wiele nieudanych prób. Spróbuj za {wait // 60 + 1} min.")
 
-        async def _fail(detail: str, status: int = 403, **extra):
-            if enroll_limiter.fail(ip):
+        async def _fail(detail: str, status: int = 403, log_attempt: bool = False, **extra):
+            # Do dziennika trafia zablokowanie adresu i próby z PRAWDZIWYM kodem – nie każdy zgadywany kod,
+            # inaczej zalewając serwer błędnymi próbami dałoby się wypchnąć z dziennika ślady wcześniejszego ataku
+            if enroll_limiter.fail(key):
                 audit.add("enroll_ip_blocked", ip=ip)
-            audit.add("enroll_failed", ip=ip, device=body.device_name.strip(), reason=detail[:80])
+            if log_attempt:
+                audit.add("enroll_failed", ip=ip, device=body.device_name.strip()[:64], reason=detail[:80])
             await asyncio.sleep(1.0)
             return JSONResponse(status_code=status, content={"detail": detail, **extra})
 
@@ -167,7 +191,7 @@ def create_app(config: Optional[ServerConfig] = None) -> FastAPI:
         max_devices = int(policy.get("max_devices_per_user") or 0)
         if max_devices and devices.active_count(user_id) >= max_devices:
             return await _fail(f"Osiągnięto limit urządzeń dla tego konta ({max_devices}). "
-                               "Administrator musi najpierw odciąć jedno z dotychczasowych urządzeń.")
+                               "Administrator musi najpierw odciąć jedno z dotychczasowych urządzeń.", log_attempt=True)
 
         totp_setup = None
         if policy.get("require_user_2fa"):
@@ -178,7 +202,13 @@ def create_app(config: Optional[ServerConfig] = None) -> FastAPI:
                         "detail": "Dodanie urządzenia wymaga kodu z Twojej aplikacji uwierzytelniającej (2FA).",
                         "totp_required": True})
                 if not users.verify_totp(user_id, body.totp):
-                    return await _fail("Nieprawidłowy kod 2FA.", status=401, totp_required=True)
+                    # Licznik błędów przypisany do KODU (nie adresu IP) – zmiana adresów nie pomaga w zgadywaniu
+                    if enrollments.register_failure(body.code, MAX_ENROLL_TOTP_FAILURES):
+                        audit.add("enroll_code_burned", ip=ip, user=user_id,
+                                  reason=f"{MAX_ENROLL_TOTP_FAILURES} błędnych kodów 2FA")
+                        return await _fail("Zbyt wiele błędnych kodów 2FA – kod aktywacyjny został unieważniony. "
+                                           "Poproś administratora o nowy.", log_attempt=True)
+                    return await _fail("Nieprawidłowy kod 2FA.", status=401, log_attempt=True, totp_required=True)
             else:
                 secret = new_totp_secret()
                 users.set_pending_totp(user_id, secret)
@@ -186,7 +216,7 @@ def create_app(config: Optional[ServerConfig] = None) -> FastAPI:
 
         if not enrollments.consume(body.code, body.device_name.strip()):
             return await _fail("Kod aktywacyjny został właśnie użyty.")
-        enroll_limiter.success(ip)
+        enroll_limiter.success(key)
         token, record = devices.create(body.device_name.strip(), user_id)
         user = users.get(user_id)
         audit.add("device_enrolled", actor=user_id, ip=ip, device=record["name"], device_id=record["device_id"])
@@ -254,7 +284,8 @@ def create_app(config: Optional[ServerConfig] = None) -> FastAPI:
                 raise HTTPException(status_code=413, detail="Plik sejfu jest zbyt duży.")
 
         try:
-            meta = store.write(device["user_id"], bytes(body), base_version, device["name"])
+            # Zapis z fsync (do kilkudziesięciu MB) poza pętlą zdarzeń – nie blokuje innych żądań
+            meta = await asyncio.to_thread(store.write, device["user_id"], bytes(body), base_version, device["name"])
         except VersionConflictError as e:
             return JSONResponse(
                 status_code=409,

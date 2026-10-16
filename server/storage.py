@@ -13,10 +13,11 @@ import os
 import re
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 VAULT_MAGIC = b"SECVAULT"
+DAILY_ANCHOR_DAYS = 30  # tyle dni wstecz zawsze zostaje co najmniej jedna wersja dziennie
 # MAGIC(8) + wersja i parametry KDF(13) + sól(32) + nonce(12) + tag GCM(16)
 MIN_VAULT_BYTES = 8 + 13 + 32 + 12 + 16
 # Pierwszy znak alfanumeryczny – identyfikator nigdy nie będzie "." ani ".." (brak wyjścia poza katalog danych)
@@ -152,11 +153,27 @@ class VaultStore:
         return items
 
     def _prune(self, user_id: str, newest: int) -> None:
+        """
+        Zostawia `max_history` najnowszych wersji ORAZ ostatnią wersję z każdego z ostatnich DAILY_ANCHOR_DAYS dni.
+        Dzięki punktom dziennym seria śmieciowych zapisów (np. z przejętego urządzenia) nie wypycha z historii
+        wersji sprzed ataku – administrator nadal może przywrócić stan z poprzednich dni.
+        """
         oldest_kept = newest - self.max_history + 1
         versions_dir = os.path.join(self._vault_dir(user_id), "versions")
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=DAILY_ANCHOR_DAYS)).isoformat()
+        anchors: Dict[str, int] = {}  # dzień -> najnowsza wersja z tego dnia
         for name in os.listdir(versions_dir):
             stem = name.split(".", 1)[0]
-            if stem.isdigit() and int(stem) < oldest_kept:
+            if name.endswith(".json") and stem.isdigit() and int(stem) < oldest_kept:
+                meta = _read_json(os.path.join(versions_dir, name)) or {}
+                updated = str(meta.get("updated_at", ""))
+                if updated >= cutoff:
+                    day = updated[:10]
+                    anchors[day] = max(anchors.get(day, 0), int(stem))
+        keep = set(anchors.values())
+        for name in os.listdir(versions_dir):
+            stem = name.split(".", 1)[0]
+            if stem.isdigit() and int(stem) < oldest_kept and int(stem) not in keep:
                 try:
                     os.remove(os.path.join(versions_dir, name))
                 except OSError:

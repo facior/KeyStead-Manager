@@ -21,6 +21,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tarfile
@@ -44,6 +45,10 @@ STEPS = [
     ("switch", "Przełączenie i restart serwera"),
     ("health", "Sprawdzenie działania"),
 ]
+
+
+def _vt(version: str):
+    return tuple(int(x) for x in version.split("."))
 
 
 def _now() -> str:
@@ -200,9 +205,10 @@ class SystemOps:
         venv = os.path.join(release_dir, "venv")
         subprocess.run([sys.executable if os.path.exists(sys.executable) else "python3", "-m", "venv", venv], check=True,
                        capture_output=True)
-        subprocess.run([os.path.join(venv, "bin", "pip"), "install", "-q", "--upgrade", "pip"], check=True, capture_output=True)
-        subprocess.run([os.path.join(venv, "bin", "pip"), "install", "-q", "-r",
-                        os.path.join(release_dir, "server", "requirements.txt")], check=True, capture_output=True)
+        # Tylko gotowe paczki (wheel): żaden setup.py z PyPI nie wykonuje się z uprawnieniami roota
+        subprocess.run([os.path.join(venv, "bin", "pip"), "install", "-q", "--disable-pip-version-check",
+                        "--only-binary=:all:", "-r", os.path.join(release_dir, "server", "requirements.txt")],
+                       check=True, capture_output=True)
 
     def backup_data(self) -> None:
         subprocess.run(["/usr/local/bin/keystead-admin", "backup"], check=True, capture_output=True, timeout=600)
@@ -382,27 +388,74 @@ class Updater:
 
     # --- obsługa prośby z panelu
     def take_request(self) -> Optional[Dict[str, Any]]:
-        """Odczytuje i usuwa prośbę (plik w katalogu użytkownika keystead – traktowany jako niezaufany)."""
+        """
+        Odczytuje i usuwa prośbę. Plik leży w katalogu użytkownika keystead, więc jest traktowany jako niezaufany:
+        tylko zwykły plik (nie dowiązanie, katalog ani FIFO), mały, należący do właściciela katalogu danych.
+        Cokolwiek tam leży – zostaje usunięte, żeby nie blokować kolejnych uruchomień aktualizatora.
+        """
         path = self.paths.request_file
-        if not os.path.exists(path) or os.path.islink(path):
-            if os.path.islink(path):
-                os.remove(path)
-            return None
-        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        raw = None
         try:
-            raw = os.read(fd, 4096)
-        finally:
-            os.close(fd)
-        os.remove(path)
+            fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
+        except OSError:
+            fd = None
+        if fd is not None:
+            try:
+                st = os.fstat(fd)
+                owner_ok = True
+                if hasattr(os, "getuid"):
+                    owner_ok = st.st_uid == os.stat(self.paths.data_dir).st_uid
+                if stat.S_ISREG(st.st_mode) and st.st_size <= 4096 and owner_ok:
+                    raw = os.read(fd, 4096)
+            except OSError:
+                raw = None
+            finally:
+                os.close(fd)
+        self._remove_request()
+        if raw is None:
+            return None
         try:
             req = json.loads(raw.decode("utf-8"))
         except ValueError:
+            return None
+        if not isinstance(req, dict):
             return None
         action = req.get("action")
         version = str(req.get("version") or "")
         if action not in ("update", "rollback") or (action == "update" and not VERSION_RE.match(version)):
             return None
         return {"action": action, "version": version, "requested_by": str(req.get("requested_by", ""))[:64]}
+
+    def _remove_request(self) -> None:
+        path = self.paths.request_file
+        try:
+            if os.path.islink(path) or not os.path.isdir(path):
+                os.remove(path)
+            else:
+                shutil.rmtree(path)  # nie podąża za dowiązaniami wewnątrz katalogu
+        except FileNotFoundError:
+            pass
+        except OSError:
+            pass
+
+    # --- ochrona przed cofaniem wersji (stan w katalogu roota)
+    @property
+    def _highest_file(self) -> str:
+        return os.path.join(self.paths.state_dir, "highest.json")
+
+    def highest_version(self) -> Optional[str]:
+        """Najwyższa wersja kiedykolwiek zainstalowana (zapisywana przez roota)."""
+        known = [_read_json(self._highest_file, {}).get("version")]
+        cur = self.current_release()
+        if cur:
+            known.append(os.path.basename(cur))
+        known = [v for v in known if v and VERSION_RE.match(v)]
+        return max(known, key=_vt) if known else None
+
+    def _remember_highest(self, version: str) -> None:
+        best = self.highest_version()
+        if best is None or _vt(version) >= _vt(best):
+            _write_json(self._highest_file, {"version": version, "at": _now()})
 
     def run_request(self) -> Optional[Dict[str, Any]]:
         req = self.take_request()
@@ -424,6 +477,12 @@ class Updater:
         try:
             if from_version == version:
                 raise UpdateError(f"Wersja {version} jest już zainstalowana.")
+            # Tylko w górę: nawet poprawnie podpisana STARSZA wersja (ze znanymi lukami) nie zostanie zainstalowana
+            highest = self.highest_version()
+            if from_version and VERSION_RE.match(from_version) and _vt(version) <= _vt(from_version):
+                raise UpdateError(f"Odrzucono instalację starszej wersji {version} (zainstalowana: {from_version}).")
+            if highest and _vt(version) < _vt(highest):
+                raise UpdateError(f"Odrzucono instalację wersji {version} starszej niż najnowsza zainstalowana ({highest}).")
             self._step("download")
             files = self.fetcher.fetch(version)
             self._step("verify")
@@ -462,6 +521,7 @@ class Updater:
                            "message": message, "by": requested_by})
             return self.status
 
+        self._remember_highest(version)
         self._set(state="success", message=f"Zaktualizowano do wersji {version}.", finished_at=_now())
         self._history({"at": _now(), "action": "update", "from": from_version, "to": version, "result": "success",
                        "by": requested_by})
@@ -474,13 +534,19 @@ class Updater:
         candidates = [v for v in UpdateBridge(self.paths).installed_versions() if v != cur_version]
         self.status = {"state": "running", "action": "rollback", "from_version": cur_version,
                        "requested_by": requested_by, "started_at": _now(), "finished_at": None}
-        if not candidates:
-            self._set(state="failed", message="Brak wcześniejszej wersji do przywrócenia.", finished_at=_now())
-            return self.status
-        # Poprzednia = ostatnio zainstalowana przed bieżącą według historii, w przeciwnym razie najwyższa niższa
+        # Powrót tylko o jeden krok: z najnowszej wersji do tej, z której nastąpiła ostatnia udana aktualizacja.
+        # Nie da się nim zejść do dowolnie starej wersji (ochrona przed wymuszeniem wersji ze znanymi lukami).
         hist = _read_json(self.paths.history_file, []) or []
-        prev = next((h.get("from") for h in reversed(hist) if h.get("to") == cur_version and h.get("from") in candidates), None)
-        target_version = prev or candidates[0]
+        prev = next((h.get("from") for h in reversed(hist)
+                     if h.get("action") == "update" and h.get("result") == "success"
+                     and h.get("to") == cur_version and h.get("from") in candidates), None)
+        highest = self.highest_version()
+        if not prev or (highest and cur_version != highest):
+            self._set(state="failed", finished_at=_now(),
+                      message="Brak wersji do przywrócenia (powrót możliwy tylko raz – z najnowszej wersji "
+                              "do wersji sprzed ostatniej aktualizacji).")
+            return self.status
+        target_version = prev
         self.status["version"] = target_version
         try:
             self._step("switch")

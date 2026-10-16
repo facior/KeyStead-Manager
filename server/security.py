@@ -41,6 +41,22 @@ def client_ip(request: Request) -> str:
     return request.client.host if request.client else ""
 
 
+def limiter_key(ip: str) -> str:
+    """
+    Klucz ograniczania prób: dla IPv6 cała sieć /64 (jedno łącze dostaje zwykle /64 lub więcej –
+    zmiana adresu w jej obrębie nie może omijać blokady), dla IPv4 pojedynczy adres.
+    """
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return ip
+    if addr.version == 6 and addr.ipv4_mapped:
+        return str(addr.ipv4_mapped)
+    if addr.version == 6:
+        return str(ipaddress.ip_network(f"{addr}/64", strict=False))
+    return str(addr)
+
+
 def is_public_edge_request(request: Request) -> bool:
     """Czy żądanie przyszło z internetu przez Tailscale Funnel / Cloudflare Tunnel."""
     return any(h in request.headers for h in PUBLIC_EDGE_HEADERS)
@@ -85,3 +101,64 @@ class RateLimiter:
     def success(self, key: str) -> None:
         with self._lock:
             self._failures.pop(key, None)
+
+
+class BodyLimitMiddleware:
+    """
+    Limit rozmiaru treści żądań (ASGI) – zanim ktokolwiek ją odczyta i przetworzy.
+    Bez tego anonimowe żądanie z kilkuset MB danych do /api/v1/enroll lub formularza panelu
+    było w całości wczytywane do pamięci jedynego procesu serwera.
+    """
+
+    def __init__(self, app, limit_for):
+        self.app = app
+        self.limit_for = limit_for  # (metoda, ścieżka) -> maksymalna liczba bajtów
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        limit = self.limit_for(scope["method"], scope["path"])
+        length = dict(scope.get("headers") or []).get(b"content-length", b"")
+        if length.isdigit() and int(length) > limit:
+            return await self._too_large(send)
+
+        received = 0
+        exceeded = False
+        replaced = False
+
+        async def limited_receive():
+            nonlocal received, exceeded
+            if exceeded:
+                return {"type": "http.disconnect"}
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > limit:
+                    # Dalszej treści nie czytamy; aplikacja dostaje „rozłączenie”, a odpowiedź podmieniamy na 413
+                    exceeded = True
+                    return {"type": "http.disconnect"}
+            return message
+
+        async def guarded_send(message):
+            nonlocal replaced
+            if exceeded:
+                if not replaced:
+                    replaced = True
+                    await self._too_large(send)
+                return
+            await send(message)
+
+        try:
+            await self.app(scope, limited_receive, guarded_send)
+        except Exception:
+            if not exceeded:
+                raise
+            if not replaced:
+                await self._too_large(send)
+
+    @staticmethod
+    async def _too_large(send):
+        body = b'{"detail":"\\u017b\\u0105danie jest zbyt du\\u017ce."}'
+        await send({"type": "http.response.start", "status": 413,
+                    "headers": [(b"content-type", b"application/json"), (b"content-length", str(len(body)).encode())]})
+        await send({"type": "http.response.body", "body": body})

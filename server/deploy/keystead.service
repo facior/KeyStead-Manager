@@ -30,6 +30,10 @@ RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 CapabilityBoundingSet=
 ReadWritePaths=/var/lib/keystead
 UMask=0077
+# Bez podglądania innych procesów (ptrace) – nawet po przejęciu usługi nie da się wstrzyknąć
+# poleceń do procesu `keystead-admin` uruchomionego przez administratora z terminala roota
+ProtectProc=invisible
+SystemCallFilter=~@debug
 
 [Install]
 WantedBy=multi-user.target

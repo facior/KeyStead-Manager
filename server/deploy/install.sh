@@ -137,8 +137,9 @@ find "$RELEASE_DIR.new/server" -name '__pycache__' -prune -exec rm -rf {} +
 
 info "Środowisko Python"
 python3 -m venv "$RELEASE_DIR.new/venv"
-"$RELEASE_DIR.new/venv/bin/pip" install -q --upgrade pip
-"$RELEASE_DIR.new/venv/bin/pip" install -q -r "$RELEASE_DIR.new/server/requirements.txt"
+# Tylko gotowe paczki (wheel) – bez uruchamiania setup.py pobranych bibliotek z uprawnieniami roota
+"$RELEASE_DIR.new/venv/bin/pip" install -q --disable-pip-version-check --only-binary=:all: \
+    -r "$RELEASE_DIR.new/server/requirements.txt"
 rm -rf "$RELEASE_DIR"
 mv "$RELEASE_DIR.new" "$RELEASE_DIR"
 chown -R root:root "$RELEASE_DIR"
@@ -210,14 +211,22 @@ cat > /usr/local/bin/keystead-admin <<'EOF'
 #!/usr/bin/env bash
 set -a; source /etc/keystead/server.env; set +a
 cd /opt/keystead/current
-exec sudo -E -u keystead /opt/keystead/current/venv/bin/python -m server "$@"
+# setsid: proces bez terminala sterującego – kod działający jako keystead nie może wstrzyknąć
+# znaków (TIOCSTI) do terminala administratora, z którego uruchomiono polecenie
+exec sudo -E -u keystead setsid --wait /opt/keystead/current/venv/bin/python -m server "$@"
 EOF
 chmod 755 /usr/local/bin/keystead-admin
 
 info "Aktualizacje z panelu administratora"
 UPDATER_STATE=/var/lib/keystead-updater
 install -d -m 755 -o root -g root "$UPDATER_STATE"
-install -d -m 700 -o keystead -g keystead "$DATA_DIR/update"
+# Katalog prośby tworzy sam użytkownik keystead: root nie może wykonywać chown/chmod na ścieżkach wewnątrz
+# katalogu, który kontroluje ten użytkownik (podmieniona ścieżka-dowiązanie oddałaby mu np. pliki systemu).
+UPDATE_DIR="$DATA_DIR/update"
+if [[ -L "$UPDATE_DIR" || ( -e "$UPDATE_DIR" && ! -d "$UPDATE_DIR" ) ]]; then
+    rm -f -- "$UPDATE_DIR"
+fi
+runuser -u keystead -- mkdir -p -m 700 "$UPDATE_DIR"
 [[ -f "$CONF_DIR/updater.env" ]] || echo "KS_UPDATE_REPOSITORY=${UPDATE_REPO:-facior/KeyStead-Manager}" > "$CONF_DIR/updater.env"
 chmod 644 "$CONF_DIR/updater.env"
 UPDATES_ENABLED=0
@@ -269,8 +278,10 @@ case "$MODE" in
         if [[ -n "$CF_TOKEN" ]]; then
             if ! command -v cloudflared &>/dev/null; then
                 info "Instalacja cloudflared"
-                curl -fsSL -o /tmp/cloudflared.deb "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-$(dpkg --print-architecture).deb"
-                dpkg -i /tmp/cloudflared.deb >/dev/null && rm -f /tmp/cloudflared.deb
+                CF_TMP="$(mktemp -d)"
+                curl -fsSL -o "$CF_TMP/cloudflared.deb" "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-$(dpkg --print-architecture).deb"
+                dpkg -i "$CF_TMP/cloudflared.deb" >/dev/null
+                rm -rf "$CF_TMP"
             fi
             cloudflared service install "$CF_TOKEN" >/dev/null 2>&1 || true
             info "Tunel Cloudflare zainstalowany jako usługa"

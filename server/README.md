@@ -110,7 +110,8 @@ próbach; sesja wygasa po 30 min bezczynności; ochrona CSRF; brak JavaScriptu i
 - Każda wersja ma własny katalog `/opt/keystead/releases/<wersja>`, a `/opt/keystead/current` wskazuje bieżącą.
   Jeśli nowa wersja nie odpowiada po restarcie, serwer **sam wraca do poprzedniej**. Przechowywane są 3 ostatnie wersje,
   a przycisk **Przywróć poprzednią wersję** cofa aktualizację ręcznie.
-- Podgląd z terminala: `sudo /opt/keystead/current/venv/bin/python -m server.updater status`,
+- Podgląd z terminala: `sudo sh -c 'cd /opt/keystead/current && venv/bin/python -m server.updater status'`
+  (zawsze z katalogu programu – Python uruchomiony z `-m` wczytuje moduły z bieżącego katalogu),
   logi: `journalctl -u keystead-updater`.
 
 Dla wydawcy (komputer z kluczem prywatnym): `python tools/release.py init-key` (jednorazowo),
