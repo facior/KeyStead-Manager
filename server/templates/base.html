@@ -17,25 +17,46 @@
   body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 "Segoe UI", system-ui, -apple-system, sans-serif; }
   a { color: var(--accent); text-decoration: none; }
   a:hover { text-decoration: underline; }
-  header { background: var(--panel); border-bottom: 1px solid var(--border); }
-  .bar { max-width: 1100px; margin: 0 auto; padding: 12px 16px; display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
-  .brand { font-weight: 700; font-size: 16px; color: var(--text); }
+  header { background: rgba(17,24,39,.92); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 10;
+           backdrop-filter: blur(8px); }
+  .bar { max-width: 1200px; margin: 0 auto; padding: 10px 20px; display: flex; align-items: center; gap: 20px; }
+  .brand { font-weight: 700; font-size: 16px; color: var(--text); white-space: nowrap; }
+  .brand:hover { text-decoration: none; }
   .brand span { color: var(--primary-l); }
-  nav { display: flex; gap: 4px; flex: 1; flex-wrap: wrap; }
-  nav a { color: var(--muted); padding: 6px 12px; border-radius: 8px; }
-  nav a:hover, nav a.active { background: var(--card); color: var(--text); text-decoration: none; }
-  main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 48px; }
+  .menu { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; }
+  nav { display: flex; gap: 2px; flex: 1; }
+  nav a, .account .who { color: var(--muted); padding: 7px 11px; border-radius: 8px; white-space: nowrap; }
+  nav a:hover, nav a.active, .account .who:hover, .account .who.active { background: var(--card); color: var(--text); text-decoration: none; }
+  nav a.active { box-shadow: inset 0 -2px 0 var(--primary-l); }
+  .account { display: flex; align-items: center; gap: 8px; }
+  .nav-toggle { position: fixed; top: 0; left: 0; width: 1px; height: 1px; margin: 0; opacity: 0; pointer-events: none; }
+  .nav-btn { display: none; margin-left: auto; font-size: 22px; line-height: 1; color: var(--text); cursor: pointer;
+             padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border); user-select: none; }
+  .nav-btn:hover { background: var(--card); }
+  @media (max-width: 1080px) {
+    .bar { flex-wrap: wrap; gap: 0; padding: 10px 16px; }
+    .nav-btn { display: block; }
+    .menu { display: none; flex-basis: 100%; flex-direction: column; align-items: stretch; gap: 8px; padding: 10px 0 4px; }
+    .nav-toggle:checked ~ .menu { display: flex; }
+    .nav-toggle:checked ~ .nav-btn { background: var(--card); }
+    nav { flex-direction: column; }
+    nav a, .account .who { padding: 10px 12px; font-size: 15px; }
+    .account { border-top: 1px solid var(--border); padding-top: 8px; justify-content: space-between; }
+  }
+  main { max-width: 1200px; margin: 0 auto; padding: 28px 20px 48px; }
   h1 { font-size: 22px; margin: 0 0 4px; }
   h2 { font-size: 16px; margin: 0 0 12px; }
   .sub { color: var(--muted); margin: 0 0 20px; }
-  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px; margin-bottom: 16px; }
-  .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-bottom: 16px; }
-  .stat { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 20px; margin-bottom: 16px;
+          box-shadow: 0 1px 2px rgba(0,0,0,.25); }
+  .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin-bottom: 16px; }
+  .stat { background: linear-gradient(180deg, var(--panel), #0f1626); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; }
   .stat b { display: block; font-size: 24px; }
   .stat span { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
   table { width: 100%; border-collapse: collapse; }
   th { text-align: left; color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; padding: 8px 10px; border-bottom: 1px solid var(--border); }
   td { padding: 10px; border-bottom: 1px solid var(--card); vertical-align: middle; }
+  tbody tr:hover td { background: rgba(255,255,255,.015); }
   tr:last-child td { border-bottom: 0; }
   .table-wrap { overflow-x: auto; }
   .muted { color: var(--muted); }
@@ -88,33 +109,65 @@
   .danger-zone { border-color: rgba(244,63,94,.4); }
   footer { text-align: center; color: var(--muted); font-size: 12px; padding: 0 16px 24px; }
   @media (max-width: 640px) { .hide-sm { display: none; } h1 { font-size: 19px; } }
+  /* --- telefon / wąskie okno --- */
+  @media (max-width: 720px) {
+    main { padding: 18px 12px 36px; }
+    .card { padding: 16px 14px; border-radius: 12px; }
+    .stat { padding: 12px 14px; }
+    .stat b { font-size: 21px; }
+    .stat span { font-size: 11px; }
+    button { white-space: normal; max-width: 100%; }
+    .row > form.inline, .row > form.inline button { width: 100%; }
+    .code-box { font-size: 20px; letter-spacing: .06em; padding: 10px 12px; word-break: break-all; }
+    .kv { grid-template-columns: 1fr; }
+    /* tabele jako karty: każdy wiersz = karta, kolumny jako „etykieta: wartość” */
+    table.stack thead { display: none; }
+    table.stack, table.stack tbody, table.stack tr, table.stack td { display: block; width: 100%; }
+    table.stack tr { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; }
+    table.stack tbody tr:hover td { background: none; }
+    table.stack td { border: 0; padding: 4px 0; text-align: right !important; overflow-wrap: anywhere; }
+    table.stack td::before { content: attr(data-label); float: left; color: var(--muted); font-size: 12px; margin-right: 12px; padding-top: 2px; }
+    table.stack td:first-child { text-align: left !important; padding-bottom: 8px; margin-bottom: 4px; border-bottom: 1px solid var(--border); }
+    table.stack td:first-child::before, table.stack td[data-label=""]::before, table.stack td[colspan]::before { content: none; }
+    table.stack td[data-label=""]:empty { display: none; }
+    table.stack td[colspan] { text-align: left !important; }
+    table.stack .meter { margin-left: auto; max-width: 160px; }
+    table.stack.compact td.hide-sm { display: none; }
+    table.stack.compact tr { padding: 8px 12px; margin-bottom: 8px; }
+    .table-wrap { overflow: visible; }
+  }
 </style>
 </head>
 <body>
 {% if session %}
 <header>
   <div class="bar">
-    <div class="brand">
+    <a class="brand" href="/admin">
       {% if branding.has_logo %}<img src="/admin/logo" alt="" class="logo">{% else %}🛡️{% endif %}
       {% if branding.company_name %}{{ branding.company_name }} <span>· KeyStead</span>{% else %}KeyStead <span>Server</span>{% endif %}
+    </a>
+    <input type="checkbox" id="nav-toggle" class="nav-toggle" aria-hidden="true">
+    <label for="nav-toggle" class="nav-btn" title="Menu" aria-label="Menu">☰</label>
+    <div class="menu">
+      <nav>
+        <a href="/admin" class="{% block nav_users %}{% endblock %}">Użytkownicy</a>
+        {% if is_admin %}
+        <a href="/admin/reports" class="{% block nav_reports %}{% endblock %}">Raport</a>
+        <a href="/admin/status" class="{% block nav_status %}{% endblock %}">Stan serwera</a>
+        <a href="/admin/backups" class="{% block nav_backups %}{% endblock %}">Kopie</a>
+        <a href="/admin/audit" class="{% block nav_audit %}{% endblock %}">Dziennik</a>
+        <a href="/admin/settings" class="{% block nav_settings %}{% endblock %}">Ustawienia</a>
+        <a href="/admin/admins" class="{% block nav_admins %}{% endblock %}">Administratorzy</a>
+        {% endif %}
+      </nav>
+      <div class="account">
+        <a href="/admin/account" class="who {% block nav_account %}{% endblock %}" title="Moje konto">👤 {{ session.username }}{% if not is_admin %} · {{ roles[session.role] }}{% endif %}</a>
+        <form class="inline" method="post" action="/admin/logout">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button class="secondary small" type="submit">Wyloguj</button>
+        </form>
+      </div>
     </div>
-    <nav>
-      <a href="/admin" class="{% block nav_users %}{% endblock %}">Użytkownicy</a>
-      {% if is_admin %}
-      <a href="/admin/reports" class="{% block nav_reports %}{% endblock %}">Raport bezpieczeństwa</a>
-      <a href="/admin/status" class="{% block nav_status %}{% endblock %}">Stan serwera</a>
-      <a href="/admin/backups" class="{% block nav_backups %}{% endblock %}">Kopie</a>
-      <a href="/admin/audit" class="{% block nav_audit %}{% endblock %}">Dziennik</a>
-      <a href="/admin/settings" class="{% block nav_settings %}{% endblock %}">Ustawienia</a>
-      <a href="/admin/admins" class="{% block nav_admins %}{% endblock %}">Administratorzy</a>
-      {% endif %}
-      <a href="/admin/account" class="{% block nav_account %}{% endblock %}">Moje konto</a>
-    </nav>
-    <form class="inline" method="post" action="/admin/logout">
-      <input type="hidden" name="csrf" value="{{ csrf }}">
-      <span class="muted hide-sm">{{ session.username }}{% if not is_admin %} · {{ roles[session.role] }}{% endif %}</span>
-      <button class="secondary small" type="submit">Wyloguj</button>
-    </form>
   </div>
 </header>
 {% if update_available and is_admin %}

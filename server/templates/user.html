@@ -40,16 +40,16 @@
   <h2>💻 Urządzenia</h2>
   {% if devices %}
   <div class="table-wrap">
-  <table>
+  <table class="stack">
     <thead><tr><th>Nazwa</th><th>Status</th><th class="hide-sm">Dodano</th><th>Ostatnio widziane</th><th></th></tr></thead>
     <tbody>
     {% for d in devices %}
       <tr>
         <td><b>{{ d.name }}</b><br><span class="muted mono">{{ d.device_id }}</span></td>
-        <td>{% if d.revoked %}<span class="badge off">odcięte</span>{% else %}<span class="badge ok">aktywne</span>{% endif %}</td>
-        <td class="hide-sm">{{ d.created_at|dt }}</td>
-        <td>{{ d.last_seen|dt }}</td>
-        <td style="text-align:right">
+        <td data-label="Status">{% if d.revoked %}<span class="badge off">odcięte</span>{% else %}<span class="badge ok">aktywne</span>{% endif %}</td>
+        <td class="hide-sm" data-label="Dodano">{{ d.created_at|dt }}</td>
+        <td data-label="Ostatnio widziane">{{ d.last_seen|dt }}</td>
+        <td style="text-align:right" data-label="">
           {% if not d.revoked and is_admin %}
           <form method="post" action="/admin/devices/{{ d.device_id }}/revoke" class="inline">
             <input type="hidden" name="csrf" value="{{ csrf }}">
@@ -84,13 +84,13 @@
   {% if meta %}
   <p style="margin-top:0">Bieżąca wersja <b>v{{ meta.version }}</b> · {{ meta.size|size }} · zmieniono {{ meta.updated_at|dt }} („{{ meta.updated_by }}”).</p>
   <div class="table-wrap">
-  <table>
+  <table class="stack">
     <thead><tr><th>Wersja</th><th>Zapisano</th><th class="hide-sm">Urządzenie</th><th class="hide-sm">Rozmiar</th><th></th></tr></thead>
     <tbody>
     {% for h in history %}
       <tr>
-        <td class="mono">v{{ h.version }}</td><td>{{ h.updated_at|dt }}</td><td class="hide-sm">{{ h.updated_by }}</td><td class="hide-sm">{{ h.size|size }}</td>
-        <td style="text-align:right">
+        <td class="mono">v{{ h.version }}</td><td data-label="Zapisano">{{ h.updated_at|dt }}</td><td class="hide-sm" data-label="Urządzenie">{{ h.updated_by }}</td><td class="hide-sm" data-label="Rozmiar">{{ h.size|size }}</td>
+        <td style="text-align:right" data-label="">
           {% if h.version == meta.version %}<span class="muted">bieżąca</span>
           {% elif is_admin %}
           <form method="post" action="/admin/users/{{ user.user_id }}/restore/{{ h.version }}" class="inline">
@@ -114,7 +114,7 @@
 
 {% if is_admin and meta and (recovery_enabled or escrow_key_id) %}
 <div class="card" id="odzyskiwanie">
-  <h2>🛟 Reset hasła głównego</h2>
+  <h2>🔐 Reset hasła głównego</h2>
   {% set rs = recovery_status %}
   {% if rs and rs.org_key_id %}
     {% if escrow_key_id and rs.org_key_id != escrow_key_id %}

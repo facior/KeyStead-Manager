@@ -24,16 +24,16 @@
   {% if events %}
   <p class="muted" style="margin-top:0">Wyświetlono {{ events|length }} zdarzeń (maks. 500 – pełna lista w eksporcie CSV).</p>
   <div class="table-wrap">
-  <table>
+  <table class="stack compact">
     <thead><tr><th>Czas</th><th>Zdarzenie</th><th>Kto</th><th class="hide-sm">Adres IP</th><th>Szczegóły</th></tr></thead>
     <tbody>
     {% for e in events %}
       <tr>
         <td class="mono">{{ e.time|dt }}</td>
-        <td>{% if 'failed' in e.event or 'blocked' in e.event or e.event in ('disk_low', 'devices_revoked_all') %}<span class="badge off">{{ e.event }}</span>{% else %}<span class="badge">{{ e.event }}</span>{% endif %}</td>
-        <td>{{ e.actor or '—' }}</td>
-        <td class="hide-sm mono">{{ e.ip or '—' }}</td>
-        <td class="muted">{% for k, v in e.items() if k not in ('time', 'event', 'actor', 'ip') %}{{ k }}={{ v }}{% if not loop.last %}, {% endif %}{% endfor %}</td>
+        <td data-label="Zdarzenie">{% if 'failed' in e.event or 'blocked' in e.event or e.event in ('disk_low', 'devices_revoked_all') %}<span class="badge off">{{ e.event }}</span>{% else %}<span class="badge">{{ e.event }}</span>{% endif %}</td>
+        <td data-label="Kto">{{ e.actor or '—' }}</td>
+        <td class="hide-sm mono" data-label="Adres IP">{{ e.ip or '—' }}</td>
+        <td class="muted" data-label="Szczegóły">{% for k, v in e.items() if k not in ('time', 'event', 'actor', 'ip') %}{{ k }}={{ v }}{% if not loop.last %}, {% endif %}{% endfor %}</td>
       </tr>
     {% endfor %}
     </tbody>

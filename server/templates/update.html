@@ -82,17 +82,17 @@
   <h2>Historia</h2>
   {% if history %}
   <div class="table-wrap">
-  <table>
+  <table class="stack">
     <thead><tr><th>Kiedy</th><th>Operacja</th><th>Wersje</th><th>Wynik</th><th class="hide-sm">Kto</th></tr></thead>
     <tbody>
     {% for h in history %}
       <tr>
         <td>{{ h.at|dt }}</td>
-        <td>{{ 'aktualizacja' if h.action == 'update' else 'przywrócenie' }}</td>
-        <td class="mono">{{ h['from'] or '—' }} → {{ h.to }}</td>
-        <td>{% if h.result == 'success' %}<span class="badge ok">sukces</span>{% elif h.result == 'rolled_back' %}<span class="badge off">wycofano</span>{% else %}<span class="badge off">błąd</span>{% endif %}
+        <td data-label="Operacja">{{ 'aktualizacja' if h.action == 'update' else 'przywrócenie' }}</td>
+        <td class="mono" data-label="Wersje">{{ h['from'] or '—' }} → {{ h.to }}</td>
+        <td data-label="Wynik">{% if h.result == 'success' %}<span class="badge ok">sukces</span>{% elif h.result == 'rolled_back' %}<span class="badge off">wycofano</span>{% else %}<span class="badge off">błąd</span>{% endif %}
           {% if h.message %}<div class="help">{{ h.message }}</div>{% endif %}</td>
-        <td class="hide-sm">{{ h.by or '—' }}</td>
+        <td class="hide-sm" data-label="Kto">{{ h.by or '—' }}</td>
       </tr>
     {% endfor %}
     </tbody>

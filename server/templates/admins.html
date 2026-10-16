@@ -30,15 +30,15 @@
 <div class="card">
   <h2>Konta</h2>
   <div class="table-wrap">
-  <table>
+  <table class="stack">
     <thead><tr><th>Login</th><th>Rola</th><th class="hide-sm">Utworzono</th><th></th></tr></thead>
     <tbody>
     {% for a in admins_list %}
       <tr>
         <td class="mono">{{ a.username }}{% if a.username == session.username %} <span class="badge">to Ty</span>{% endif %}</td>
-        <td>{{ roles[a.role] }}</td>
-        <td class="hide-sm">{{ a.created_at|dt }}</td>
-        <td style="text-align:right">
+        <td data-label="Rola">{{ roles[a.role] }}</td>
+        <td class="hide-sm" data-label="Utworzono">{{ a.created_at|dt }}</td>
+        <td style="text-align:right" data-label="">
           {% if a.username != session.username %}
           <form method="post" action="/admin/admins/{{ a.username }}/delete" class="inline">
             <input type="hidden" name="csrf" value="{{ csrf }}">

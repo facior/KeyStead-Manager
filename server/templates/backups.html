@@ -33,13 +33,13 @@
   </div>
   {% if backups %}
   <div class="table-wrap">
-  <table>
+  <table class="stack">
     <thead><tr><th>Plik</th><th>Utworzono</th><th>Rozmiar</th><th></th></tr></thead>
     <tbody>
     {% for b in backups %}
       <tr>
-        <td class="mono">{{ b.name }}</td><td>{{ b.created_at|dt }}</td><td>{{ b.size|size }}</td>
-        <td style="text-align:right;white-space:nowrap">
+        <td class="mono">{{ b.name }}</td><td data-label="Utworzono">{{ b.created_at|dt }}</td><td data-label="Rozmiar">{{ b.size|size }}</td>
+        <td style="text-align:right;white-space:nowrap" data-label="">
           <a href="/admin/backups/{{ b.name }}/download">Pobierz</a>
           <form method="post" action="/admin/backups/{{ b.name }}/delete" class="inline" style="margin-left:10px">
             <input type="hidden" name="csrf" value="{{ csrf }}">

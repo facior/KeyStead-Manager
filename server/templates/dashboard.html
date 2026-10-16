@@ -53,18 +53,18 @@
   <h2>Konta</h2>
   {% if users %}
   <div class="table-wrap">
-  <table>
+  <table class="stack">
     <thead><tr><th>Użytkownik</th><th>Status</th><th>Urządzenia</th><th class="hide-sm">Wynik</th><th class="hide-sm">Sejf</th><th class="hide-sm">Ostatnia aktywność</th><th></th></tr></thead>
     <tbody>
     {% for u in users %}
       <tr>
         <td><b>{{ u.display_name }}</b><br><span class="muted mono">{{ u.username }}</span>{% if u.has_2fa %} <span class="badge ok" title="Włączone 2FA">2FA</span>{% endif %}</td>
-        <td>{% if u.disabled %}<span class="badge off">zablokowane</span>{% else %}<span class="badge ok">aktywne</span>{% endif %}</td>
-        <td>{{ u.devices }}</td>
-        <td class="hide-sm">{% if u.report %}<span class="score {{ 'good' if u.report.score >= 80 else ('mid' if u.report.score >= 50 else 'bad') }}">{{ u.report.score }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
-        <td class="hide-sm">{% if u.meta %}v{{ u.meta.version }} · {{ u.meta.size|size }}{% else %}<span class="muted">jeszcze nie wysłany</span>{% endif %}</td>
-        <td class="hide-sm">{{ u.last_seen|dt }}</td>
-        <td style="text-align:right"><a href="/admin/users/{{ u.user_id }}">Zarządzaj →</a></td>
+        <td data-label="Status">{% if u.disabled %}<span class="badge off">zablokowane</span>{% else %}<span class="badge ok">aktywne</span>{% endif %}</td>
+        <td data-label="Urządzenia">{{ u.devices }}</td>
+        <td class="hide-sm" data-label="Wynik">{% if u.report %}<span class="score {{ 'good' if u.report.score >= 80 else ('mid' if u.report.score >= 50 else 'bad') }}">{{ u.report.score }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+        <td class="hide-sm" data-label="Sejf">{% if u.meta %}v{{ u.meta.version }} · {{ u.meta.size|size }}{% else %}<span class="muted">jeszcze nie wysłany</span>{% endif %}</td>
+        <td class="hide-sm" data-label="Ostatnia aktywność">{{ u.last_seen|dt }}</td>
+        <td style="text-align:right" data-label=""><a href="/admin/users/{{ u.user_id }}">Zarządzaj →</a></td>
       </tr>
     {% endfor %}
     </tbody>
