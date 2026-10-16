@@ -32,6 +32,7 @@ DEFAULTS: Dict[str, Any] = {
         "allow_quick_unlock": True,    # Windows Hello w aplikacji
         "quick_unlock_days": 14,       # co ile dni hasło główne zamiast Windows Hello
         "allow_autotype": True,        # wpisywanie loginu i hasła skrótem klawiszowym
+        "allow_site_icons": True,      # ikony stron przy wpisach (pobierane przez aplikację bezpośrednio ze stron)
         "allow_attachments": True,     # zaszyfrowane pliki przy wpisach
         "max_attachment_mb": 10,
         "attachment_quota_mb": 200,

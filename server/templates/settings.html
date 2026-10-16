@@ -66,6 +66,7 @@
       <label class="check"><input type="checkbox" name="allow_quick_unlock" value="1" {% if p.allow_quick_unlock %}checked{% endif %}> Pozwól odblokowywać sejf przez Windows Hello (odcisk palca / twarz / PIN)</label>
       <label class="check"><input type="checkbox" name="allow_autotype" value="1" {% if p.allow_autotype %}checked{% endif %}> Pozwól na Autotype (wpisywanie loginu i hasła skrótem klawiszowym)</label>
       <label class="check"><input type="checkbox" name="allow_attachments" value="1" {% if p.allow_attachments %}checked{% endif %}> Pozwól na załączniki (zaszyfrowane pliki przy wpisach)</label>
+      <label class="check"><input type="checkbox" name="allow_site_icons" value="1" {% if p.allow_site_icons %}checked{% endif %}> Pokazuj ikony stron (aplikacja pobiera je bezpośrednio ze stron wpisów – wyłącz, jeśli komputery nie mogą łączyć się z internetem)</label>
     </div>
     <div class="row" style="margin-top:10px">
       <div class="field"><label for="qd">Windows Hello – hasło główne co (dni)</label>

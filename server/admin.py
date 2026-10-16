@@ -913,6 +913,7 @@ def create_admin_router(ctx: ServerContext) -> APIRouter:
             "allow_quick_unlock": bool(form.get("allow_quick_unlock")),
             "quick_unlock_days": _int(form.get("quick_unlock_days"), 14, 1, 90),
             "allow_autotype": bool(form.get("allow_autotype")),
+            "allow_site_icons": bool(form.get("allow_site_icons")),
             "allow_attachments": bool(form.get("allow_attachments")),
             "max_attachment_mb": _int(form.get("max_attachment_mb"), 10, 1, 50),
             "attachment_quota_mb": _int(form.get("attachment_quota_mb"), 200, 1, 10000),
