@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from server.accounts import AdminStore, AuditLog, EnrollmentStore, UserStore
 from server.attachments import AttachmentStore
+from server.offboarding import OffboardingStore
 from server.report_pdf import ReportHistory, org_rows, org_summary
 from server.config import ServerConfig
 from server.devices import DeviceRegistry
@@ -38,6 +39,7 @@ class ServerContext:
     updates: UpdateBridge = None
     app_download: AppDownload = None
     attachments: AttachmentStore = None
+    offboarding: OffboardingStore = None
     report_history: ReportHistory = None
 
     def download_link(self) -> str:
@@ -83,6 +85,7 @@ class ServerContext:
         ctx.tasks.updates = ctx.updates
         ctx.app_download = AppDownload(settings)
         ctx.attachments = AttachmentStore(config.data_dir)
+        ctx.offboarding = OffboardingStore(config.data_dir)
         ctx.report_history = ReportHistory(config.data_dir)
         ctx.tasks.snapshot = lambda: ctx.report_history.record(org_summary(org_rows(ctx)))
         audit.add_listener(ctx.notifier.on_audit_event)

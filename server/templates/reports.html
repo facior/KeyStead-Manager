@@ -9,6 +9,28 @@
   <button type="submit" class="secondary">📄 Pobierz raport PDF (podsumowanie, trend, użytkownicy)</button>
 </form>
 
+<div class="card" id="zgodnosc">
+  <h2>📋 Zgodność: NIS2 / ustawa o KSC, RODO</h2>
+  <p class="muted" style="margin-top:0">Dokumenty dla audytora i kierownictwa, generowane z bieżących ustawień i dziennika zdarzeń.
+    Nie zawierają haseł ani nazw kont z sejfów.</p>
+  <div class="row">
+    <form method="get" action="/admin/reports/compliance.pdf" class="row" style="gap:8px">
+      <div class="field" style="min-width:150px;flex:0 0 auto"><label for="cdays">Okres dziennika</label>
+        <select id="cdays" name="days">
+          <option value="30">30 dni</option><option value="90" selected>90 dni</option>
+          <option value="180">180 dni</option><option value="365">rok</option>
+        </select></div>
+      <button type="submit">📄 Raport zgodności (PDF)</button>
+    </form>
+    <form method="get" action="/admin/reports/policy.pdf" class="inline" style="margin-top:22px">
+      <button type="submit" class="secondary">📝 Polityka zarządzania hasłami (PDF)</button>
+    </form>
+  </div>
+  <p class="help">Raport: polityki, konta i uprawnienia, 2FA, higiena haseł, kopie zapasowe, szyfrowanie, aktualizacje, dziennik
+    oraz automatyczne zalecenia – z odwołaniami do środków z art. 21 NIS2. Polityka: gotowy dokument wewnętrzny z wartościami
+    z Ustawień, do zatwierdzenia i podpisania.</p>
+</div>
+
 {% if not enabled %}
 <div class="flash error">Raporty są wyłączone w politykach bezpieczeństwa. <a href="/admin/settings#polityki">Włącz je</a>, aby aplikacje zaczęły je przesyłać.</div>
 {% endif %}

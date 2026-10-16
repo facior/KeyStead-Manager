@@ -8,6 +8,7 @@ Token można w każdej chwili odwołać (np. po zgubieniu laptopa).
 
 import hashlib
 import hmac
+import re
 import json
 import os
 import secrets
@@ -26,6 +27,8 @@ def _hash(token: str) -> str:
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
+
+APP_VERSION_RE = re.compile(r"^\d{1,3}\.\d{1,3}\.\d{1,4}$")
 
 class DeviceRegistry:
     def __init__(self, data_dir: str):
@@ -70,7 +73,7 @@ class DeviceRegistry:
             self._save(devices)
         return token, record
 
-    def authenticate(self, token: str) -> Optional[Dict[str, Any]]:
+    def authenticate(self, token: str, app_version: str = "") -> Optional[Dict[str, Any]]:
         if not token or not token.startswith(TOKEN_PREFIX):
             return None
         digest = _hash(token)
@@ -80,8 +83,15 @@ class DeviceRegistry:
                 if hmac.compare_digest(dev["token_sha256"], digest) and not dev.get("revoked"):
                     # Aktualizacja "ostatnio widziane" najwyżej raz na minutę (aplikacja odpytuje co 30 s)
                     last = dev.get("last_seen")
+                    changed = False
                     if not last or (datetime.now(timezone.utc) - datetime.fromisoformat(last)).total_seconds() > 60:
                         dev["last_seen"] = _now()
+                        changed = True
+                    # Wersja aplikacji (nagłówek X-KeyStead-Version) – tylko w poprawnym formacie
+                    if app_version and APP_VERSION_RE.match(app_version) and dev.get("app_version") != app_version:
+                        dev["app_version"] = app_version
+                        changed = True
+                    if changed:
                         self._save(devices)
                     return dev
         return None

@@ -5,6 +5,11 @@
 <h1>Użytkownicy</h1>
 <p class="sub">Konta osób korzystających z serwera. Każdy użytkownik ma własny, osobno szyfrowany sejf.</p>
 
+{% for d in departing %}
+<div class="flash error">👋 Odejście pracownika w toku: <a href="/admin/users/{{ d.user_id }}#odejscie"><b>{{ d.name }}</b></a> –
+  {{ d.todo }} {{ 'hasło' if d.todo == 1 else 'haseł' }} do zmiany (zmienione {{ d.done }}, pominięte {{ d.skip }} z {{ d.total }}).</div>
+{% endfor %}
+
 <div class="grid">
   <div class="stat"><b>{{ stats.users }}</b><span>Konta</span></div>
   <div class="stat"><b>{{ stats.active_users }}</b><span>Aktywne</span></div>

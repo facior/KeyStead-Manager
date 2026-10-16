@@ -164,10 +164,24 @@ def generate_temp_password(length: int = 14) -> str:
     return "".join(secrets.choice(TEMP_ALPHABET) for _ in range(length))
 
 
-def reset_password(blob: bytes, private: X25519PrivateKey, temp_password: str) -> bytes:
-    """Nowa wersja sejfu otwierana hasłem tymczasowym; aplikacja wymusi ustawienie własnego hasła."""
-    if len(temp_password or "") < MIN_TEMP_PASSWORD:
-        raise ResetError(f"Hasło tymczasowe musi mieć co najmniej {MIN_TEMP_PASSWORD} znaków.")
+class OpenedVault:
+    """Sejf otwarty kluczem firmy: zawartość (JSON) + klucz danych i klucze dostępu do ponownego zaszyfrowania."""
+
+    def __init__(self, data: Dict[str, Any], dek: bytes, slots: list):
+        self.data, self.dek, self.slots = data, dek, slots
+
+    def seal(self, slots: Optional[list] = None) -> bytes:
+        """Nowa wersja: licznik zapisów +1 (inne urządzenia przyjmą ją jako zwykłą zmianę)."""
+        self.data["revision"] = int(self.data.get("revision", 0) or 0) + 1
+        header = json.dumps({"slots": slots if slots is not None else self.slots}, separators=(",", ":")).encode("utf-8")
+        nonce = os.urandom(NONCE_LEN)
+        prefix = MAGIC + struct.pack(">BI", VERSION_V2, len(header)) + header + nonce
+        plaintext = json.dumps(self.data, ensure_ascii=False, indent=2).encode("utf-8")
+        return prefix + AESGCM(self.dek).encrypt(nonce, plaintext, prefix)
+
+
+def open_vault(blob: bytes, private: X25519PrivateKey) -> OpenedVault:
+    """Odszyfrowanie sejfu kluczem firmy (wyłącznie w pamięci)."""
     parsed = _parse(blob)
     if parsed is None:
         raise ResetError("Sejf jest w starym formacie, bez klucza firmy – użytkownik musi raz odblokować go "
@@ -192,19 +206,18 @@ def reset_password(blob: bytes, private: X25519PrivateKey, temp_password: str) -
         raise ResetError("Nie udało się odszyfrować sejfu kluczem firmy – plik uszkodzony lub zmodyfikowany.")
     if not isinstance(data, dict):
         raise ResetError("Nieprawidłowa zawartość sejfu.")
+    return OpenedVault(data, dek, slots)
 
-    settings = data.get("settings") if isinstance(data.get("settings"), dict) else {}
+
+def reset_password(blob: bytes, private: X25519PrivateKey, temp_password: str) -> bytes:
+    """Nowa wersja sejfu otwierana hasłem tymczasowym; aplikacja wymusi ustawienie własnego hasła."""
+    if len(temp_password or "") < MIN_TEMP_PASSWORD:
+        raise ResetError(f"Hasło tymczasowe musi mieć co najmniej {MIN_TEMP_PASSWORD} znaków.")
+    vault = open_vault(blob, private)
+    settings = vault.data.get("settings") if isinstance(vault.data.get("settings"), dict) else {}
     settings[FORCE_CHANGE_KEY] = True
-    data["settings"] = settings
-    data["revision"] = int(data.get("revision", 0) or 0) + 1   # nowa treść – nie „podsunięta stara wersja”
-
+    vault.data["settings"] = settings
     meta, pw_kek = _kdf_new(temp_password)
-    new_slots = [s for s in slots if s.get("type") != "password"]
-    new_slots.append({"type": "password", **meta, **_wrap(pw_kek, dek, "password")})
-    header = json.dumps({"slots": new_slots}, separators=(",", ":")).encode("utf-8")
-    new_nonce = os.urandom(NONCE_LEN)
-    prefix = MAGIC + struct.pack(">BI", VERSION_V2, len(header)) + header + new_nonce
-    plaintext = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
-    out = prefix + AESGCM(dek).encrypt(new_nonce, plaintext, prefix)
-    del dek, plaintext, data
-    return out
+    new_slots = [s for s in vault.slots if s.get("type") != "password"]
+    new_slots.append({"type": "password", **meta, **_wrap(pw_kek, vault.dek, "password")})
+    return vault.seal(new_slots)

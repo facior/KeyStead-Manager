@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}O programie{% endblock %}
+{% block content %}
+<h1>O programie</h1>
+<p class="sub">KeyStead – menedżer haseł z własnym serwerem (Zero-Knowledge) dla firm i zespołów.</p>
+
+<div class="card">
+  <h2>🛡️ KeyStead {{ line }}</h2>
+  <dl class="kv">
+    <dt>KeyStead Server</dt><dd><b>{{ server_version }}</b></dd>
+    <dt>KeyStead Manager (aplikacja)</dt><dd>{% if latest_app %}najnowsza: <b>{{ latest_app }}</b> · {% endif %}<a href="{{ download_url }}" rel="noopener noreferrer">pobierz najnowszą wersję</a></dd>
+    <dt>Zgodność wersji</dt><dd>aplikacja {{ line }}.x współpracuje z serwerem {{ line }}.x i nowszym
+      <p class="help" style="margin:2px 0 0">Pierwsze dwie liczby wersji są wspólne dla serwera i aplikacji (nowe funkcje),
+        ostatnia oznacza poprawki tylko w jednej z części.</p></dd>
+    <dt>Urządzenia z nieaktualną aplikacją</dt><dd>{% if outdated %}<span class="badge off">{{ outdated }}</span>
+      <span class="muted">(starsza linia niż {{ line }} – widać to na kartach użytkowników)</span>{% else %}<span class="badge ok">brak</span>{% endif %}</dd>
+    <dt>Bezpieczeństwo</dt><dd>szyfrowanie end-to-end na urządzeniu użytkownika (AES-256-GCM, Argon2id) – serwer przechowuje
+      wyłącznie zaszyfrowane dane; wydania podpisane cyfrowo (Ed25519)</dd>
+    <dt>Środowisko</dt><dd class="mono">Python {{ python_version }} · FastAPI {{ fastapi_version }} · {{ platform }}</dd>
+    <dt>Kod źródłowy i wydania</dt><dd><a href="{{ server_repo }}" rel="noopener noreferrer">serwer</a> ·
+      <a href="{{ app_repo }}" rel="noopener noreferrer">aplikacja</a></dd>
+  </dl>
+</div>
+
+<div class="card">
+  <h2>👤 O autorze</h2>
+  <dl class="kv">
+    <dt>Autor</dt><dd><b>{{ author }}</b></dd>
+    <dt>Rola</dt><dd>twórca i programista KeyStead Manager oraz KeyStead Server</dd>
+    <dt>GitHub</dt><dd><a href="{{ author_github }}" rel="noopener noreferrer">{{ author_github|replace("https://", "") }}</a></dd>
+  </dl>
+</div>
+
+<div class="card">
+  <h2>📜 Licencja</h2>
+  <p style="margin-top:0"><b>{{ copyright }}</b></p>
+  <p class="muted" style="margin-bottom:0">Oprogramowanie KeyStead (serwer i aplikacja) jest chronione prawem autorskim. Korzystanie,
+    kopiowanie, modyfikowanie i rozpowszechnianie jest dozwolone wyłącznie na podstawie zgody autora lub odrębnej umowy licencyjnej.
+    Szczegóły w pliku LICENSE dołączonym do wydania.</p>
+</div>
+{% endblock %}

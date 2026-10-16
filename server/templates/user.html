@@ -41,12 +41,13 @@
   {% if devices %}
   <div class="table-wrap">
   <table class="stack">
-    <thead><tr><th>Nazwa</th><th>Status</th><th class="hide-sm">Dodano</th><th>Ostatnio widziane</th><th></th></tr></thead>
+    <thead><tr><th>Nazwa</th><th>Status</th><th>Aplikacja</th><th class="hide-sm">Dodano</th><th>Ostatnio widziane</th><th></th></tr></thead>
     <tbody>
     {% for d in devices %}
       <tr>
         <td><b>{{ d.name }}</b><br><span class="muted mono">{{ d.device_id }}</span></td>
         <td data-label="Status">{% if d.revoked %}<span class="badge off">odcięte</span>{% else %}<span class="badge ok">aktywne</span>{% endif %}</td>
+        <td data-label="Aplikacja">{% if d.app_version %}<span class="mono">{{ d.app_version }}</span>{% set av = d.app_version.split('.') %}{% set sv = server_version.split('.') %}{% set al = av[0]|int * 1000 + av[1]|int %}{% set sl = sv[0]|int * 1000 + sv[1]|int %}{% if al < sl %} <span class="badge off" title="Starsza linia niż serwer {{ server_version }}">do aktualizacji</span>{% elif al > sl %} <span class="badge" title="Serwer {{ server_version }} wymaga aktualizacji">nowsza niż serwer</span>{% endif %}{% else %}<span class="muted">—</span>{% endif %}</td>
         <td class="hide-sm" data-label="Dodano">{{ d.created_at|dt }}</td>
         <td data-label="Ostatnio widziane">{{ d.last_seen|dt }}</td>
         <td style="text-align:right" data-label="">
@@ -182,6 +183,82 @@
   </form>
   {% endif %}
 </div>
+
+{% if is_admin %}
+<div class="card" id="odejscie">
+  <h2>👋 Odejście pracownika</h2>
+  {% if offboard %}
+    {% set pr = offboard_progress %}
+    <p class="muted" style="margin-top:0">Rozpoczęte {{ offboard.started_at|dt }} przez {{ offboard.by }}. Konto zablokowane, odcięto urządzeń: {{ offboard.devices_revoked }}.
+      {% if offboard.successor %}Przekazano {{ offboard.transferred }} wpisów do sejfu: <b>{{ offboard.successor_name or offboard.successor }}</b>
+      (kategoria „Przekazane: {{ user.display_name or user.username }}”).{% endif %}</p>
+    {% if offboard.note %}<p class="flash error">{{ offboard.note }}</p>{% endif %}
+    <p style="margin:6px 0">Hasła do zmiany: <b>{{ pr.done }}</b> zmienione · <b>{{ pr.skip }}</b> pominięte · <b>{{ pr.todo }}</b> zostało (z {{ pr.total }})</p>
+    {% if pr.total %}<div class="meter" style="margin-bottom:12px"><span style="width:{{ ((pr.done + pr.skip) * 100 / pr.total)|round|int }}%"></span></div>{% endif %}
+    <p class="help">Pracownik znał hasła do tych kont – zmień je (lub wyłącz konto w danym systemie) i oznacz pozycję. Lista zawiera tylko nazwę, stronę i login – nigdy hasła.</p>
+    {% if offboard['items'] %}
+    <div class="table-wrap">
+    <table class="stack">
+      <thead><tr><th>Konto</th><th>Login</th><th>Kategoria</th><th>Stan</th><th></th></tr></thead>
+      <tbody>
+      {% for it in offboard['items'] %}
+        <tr>
+          <td><b>{{ it.title }}</b>{% if it.url %}<br><span class="muted mono" style="word-break:break-all">{{ it.url }}</span>{% endif %}</td>
+          <td class="mono" data-label="Login">{{ it.username or '—' }}</td>
+          <td data-label="Kategoria">{{ it.category or '—' }}</td>
+          <td data-label="Stan">{% if it.status == 'done' %}<span class="badge ok">zmienione</span>{% elif it.status == 'skip' %}<span class="badge">pominięte</span>{% else %}<span class="badge off">do zmiany</span>{% endif %}
+            {% if it.by %}<div class="help">{{ it.by }} · {{ it.at|dt }}</div>{% endif %}</td>
+          <td data-label="" style="text-align:right;white-space:nowrap">
+            {% for st, label in [('done', 'Zmienione'), ('skip', 'Pomiń'), ('todo', 'Cofnij')] if st != it.status %}
+            <form method="post" action="/admin/users/{{ user.user_id }}/offboarding/item/{{ it.id }}" class="inline">
+              <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="status" value="{{ st }}">
+              <button type="submit" class="{{ '' if st == 'done' else 'secondary' }} small">{{ label }}</button>
+            </form>
+            {% endfor %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% endif %}
+    <form method="post" action="/admin/users/{{ user.user_id }}/offboarding/add" class="row" style="margin-top:12px" autocomplete="off">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <div class="field"><label for="obt">Dodaj konto ręcznie</label><input id="obt" name="title" placeholder="np. Router w biurze, konto bankowe firmy" required></div>
+      <div class="field"><label for="obu">Strona (opcjonalnie)</label><input id="obu" name="url" placeholder="https://..."></div>
+      <div class="field"><label for="obl">Login (opcjonalnie)</label><input id="obl" name="username"></div>
+      <button type="submit" class="secondary">Dodaj</button>
+    </form>
+    <form method="post" action="/admin/users/{{ user.user_id }}/offboarding/finish" style="margin-top:14px">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button type="submit">✅ Zakończ odejście{% if pr.todo %} (zostało {{ pr.todo }} do zmiany){% endif %}</button>
+      <p class="help">Po zakończeniu lista kont jest usuwana z serwera – w dzienniku zostaje tylko podsumowanie.</p>
+    </form>
+  {% else %}
+    <p class="muted" style="margin-top:0">Gdy pracownik odchodzi z firmy: konto zostaje zablokowane, wszystkie urządzenia odcięte, a panel tworzy
+      listę kont z jego sejfu (nazwa, strona, login – <b>bez haseł</b>), w których trzeba zmienić hasła. Wpisy można od razu przekazać następcy.</p>
+    <form method="post" action="/admin/users/{{ user.user_id }}/offboard" autocomplete="off">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <div class="row cols">
+        {% if escrow_key_id and meta %}
+        <div class="field"><label for="obp">Hasło działu IT</label><input id="obp" name="it_password" type="password" autocomplete="off">
+          <p class="help">Potrzebne do odczytania listy kont i przekazania wpisów. Puste = lista do uzupełnienia ręcznie.</p></div>
+        <div class="field"><label for="obs">Przekaż wpisy następcy (opcjonalnie)</label>
+          <select id="obs" name="successor"><option value="">— nie przekazuj —</option>
+            {% for s in successors %}<option value="{{ s.user_id }}">{{ s.display_name or s.username }} ({{ s.username }})</option>{% endfor %}
+          </select>
+          <p class="help">Wpisy trafią do jego sejfu jako kategoria „Przekazane: {{ user.display_name or user.username }}” (z załącznikami).</p></div>
+        {% else %}
+        <p class="help" style="grid-column:1/-1">{% if not meta %}Pracownik nie ma sejfu na serwerze.{% else %}Klucz firmy nie jest zapisany na serwerze (Ustawienia → Odzyskiwanie dostępu) –
+          listę kont uzupełnisz ręcznie.{% endif %}</p>
+        {% endif %}
+        <div class="field"><label for="obc">Wpisz login <span class="mono">{{ user.username }}</span>, aby potwierdzić</label><input id="obc" name="confirm" required></div>
+      </div>
+      <button type="submit" class="danger">👋 Rozpocznij odejście pracownika</button>
+    </form>
+  {% endif %}
+</div>
+{% endif %}
 
 <div class="card danger-zone">
   <h2>⚠️ Strefa zagrożenia</h2>

@@ -222,6 +222,6 @@
   {% endif %}
   {% block content %}{% endblock %}
 </main>
-<footer>KeyStead Server {{ server_version }} · serwer przechowuje wyłącznie zaszyfrowane sejfy – administrator nie ma dostępu do haseł użytkowników.</footer>
+<footer>KeyStead Server {{ server_version }}{% if session %} · <a href="/admin/about">O programie</a>{% endif %} · serwer przechowuje wyłącznie zaszyfrowane sejfy – administrator nie ma dostępu do haseł użytkowników.<br>© 2026 Łukasz Kubieniec. Wszelkie prawa zastrzeżone.</footer>
 </body>
 </html>

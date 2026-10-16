@@ -53,7 +53,7 @@ DEFAULTS: Dict[str, Any] = {
         "events": [
             "admin_login_failed", "admin_login_blocked", "api_ip_blocked", "enroll_ip_blocked",
             "device_enrolled", "devices_revoked_all", "disk_low", "backup_failed", "update_available",
-            "update_finished", "vault_password_reset_by_admin", "vault_reset_failed",
+            "update_finished", "vault_password_reset_by_admin", "vault_reset_failed", "user_offboarded",
         ],
         "disk_low_percent": 10,
     },
@@ -90,6 +90,7 @@ EVENT_LABELS = {
     "update_finished": "Zakończenie aktualizacji serwera (sukces lub błąd)",
     "vault_password_reset_by_admin": "Reset hasła głównego użytkownika przez administratora",
     "vault_reset_failed": "Nieudany reset hasła (błędne hasło działu IT)",
+    "user_offboarded": "Odejście pracownika (blokada konta i lista haseł do zmiany)",
 }
 
 

@@ -1,0 +1,32 @@
+﻿KeyStead (KeyStead Manager i KeyStead Server)
+Copyright (c) 2026 Łukasz Kubieniec. Wszelkie prawa zastrzeżone.
+
+LICENCJA – OPROGRAMOWANIE ZASTRZEŻONE
+
+1. Oprogramowanie KeyStead, w tym kod źródłowy, pliki wykonywalne, instalatory, dokumentacja,
+   grafiki i inne materiały (dalej: „Oprogramowanie”), jest utworem chronionym prawem autorskim
+   i stanowi wyłączną własność autora – Łukasza Kubieńca (dalej: „Autor”).
+
+2. Korzystanie z Oprogramowania jest dozwolone wyłącznie na podstawie zgody Autora lub odrębnej
+   umowy licencyjnej zawartej z Autorem. Udostępnienie kodu źródłowego (np. w serwisie GitHub)
+   nie oznacza udzielenia licencji.
+
+3. Bez pisemnej zgody Autora zabrania się w szczególności:
+   a) kopiowania, modyfikowania, tłumaczenia i tworzenia utworów zależnych,
+   b) rozpowszechniania, sprzedaży, najmu, użyczania i udostępniania Oprogramowania osobom trzecim,
+   c) świadczenia usług z wykorzystaniem Oprogramowania na rzecz osób trzecich (np. hosting, SaaS),
+   d) usuwania lub zmieniania oznaczeń autorstwa i informacji o prawach autorskich,
+   w zakresie wykraczającym poza przypadki dozwolone bezwzględnie obowiązującymi przepisami prawa.
+
+4. Oprogramowanie jest dostarczane w stanie, w jakim się znajduje („as is”), bez jakichkolwiek
+   gwarancji. W najszerszym zakresie dopuszczalnym przez prawo Autor nie ponosi odpowiedzialności
+   za szkody wynikłe z korzystania lub niemożności korzystania z Oprogramowania, w tym za utratę
+   danych. Użytkownik odpowiada za przechowywanie hasła głównego i kopii zapasowych.
+
+5. W sprawach licencji i współpracy: https://github.com/facior
+
+---------------------------------------------------------------------------------------------------
+English summary: Copyright (c) 2026 Łukasz Kubieniec. All rights reserved. This software is
+proprietary. No license is granted by making the source code available. Any use, copying,
+modification or distribution requires the author's prior written permission. Provided "as is",
+without warranty of any kind.

@@ -136,7 +136,8 @@ def create_app(config: Optional[ServerConfig] = None) -> FastAPI:
         if blocked:
             raise HTTPException(status_code=429, detail=f"Zbyt wiele nieudanych prób. Spróbuj za {wait // 60 + 1} min.")
         scheme, _, token = authorization.partition(" ")
-        device = devices.authenticate(token.strip()) if scheme.lower() == "bearer" else None
+        app_version = request.headers.get("x-keystead-version", "")
+        device = devices.authenticate(token.strip(), app_version) if scheme.lower() == "bearer" else None
         if device is None or not users.is_active(device["user_id"]):
             if auth_limiter.fail(ip):
                 audit.add("api_ip_blocked", ip=client_ip(request), reason="nieudane uwierzytelnienia")
@@ -264,6 +265,7 @@ def create_app(config: Optional[ServerConfig] = None) -> FastAPI:
         meta = store.get_meta(device["user_id"])
         user = users.get(device["user_id"]) or {}
         return {"exists": bool(meta), "meta": meta, "device": device["name"], "server_id": store.server_id,
+                "server_version": SERVER_VERSION,
                 "user": user.get("display_name", device["user_id"]),
                 "policy": settings.public_policy(), "branding": settings.public_branding()}
 

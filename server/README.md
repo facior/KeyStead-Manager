@@ -191,3 +191,12 @@ Kopia zapasowa serwera: archiwum katalogu `/var/lib/keystead` (wyłącznie zaszy
 - Ograniczanie prób: logowanie urządzeń (20 prób / 10 min), kody aktywacyjne (10 prób / 10 min), panel (5 prób / 15 min).
 - Listy dozwolonych sieci dla API i panelu; adres klienta za serwerem pośredniczącym odczytywany tylko od zaufanych pośredników.
 - Usługa systemd z utwardzeniem (brak dostępu do reszty systemu poza katalogiem danych).
+
+
+## Wersje, autor i licencja
+
+- **Numeracja wersji:** pierwsze dwie liczby są wspólne dla aplikacji i serwera (nowe funkcje wydawane razem),
+  ostatnia oznacza poprawki tylko w jednej części. Aplikacja **2.0.x** współpracuje z serwerem **2.0.x** i nowszym.
+- **Autor:** Łukasz Kubieniec – [github.com/facior](https://github.com/facior)
+- **Licencja:** © 2026 Łukasz Kubieniec. Wszelkie prawa zastrzeżone. Oprogramowanie zastrzeżone – udostępnienie kodu
+  nie oznacza udzielenia licencji; szczegóły w pliku [LICENSE](../LICENSE).

@@ -41,7 +41,7 @@ from server.security import RateLimiter, client_ip, ip_allowed, is_public_edge_r
 from server.settings import EVENT_LABELS, org_key_id
 from server.storage import InvalidVaultError, VersionConflictError
 from server.updater import STEPS, UpdateError
-from server import vault_reset
+from server import compliance, offboarding, vault_reset
 
 SESSION_COOKIE = "ks_admin"
 SESSION_IDLE_SECONDS = 30 * 60
@@ -372,8 +372,10 @@ def create_admin_router(ctx: ServerContext) -> APIRouter:
             "avg_score": round(sum(scored) / len(scored)) if scored else None,
         }
         last_backup = ctx.ops_state.get().get("last_backup")
+        departing = [{"user_id": r["user_id"], "name": (users.get(r["user_id"]) or {}).get("display_name") or r["user_id"],
+                      **offboarding.progress(r)} for r in ctx.offboarding.active()] if sess.get("role") == "admin" else []
         return render(request, "dashboard.html", sess, users=rows, stats=stats, last_backup=last_backup,
-                      backups_enabled=settings.section("backups").get("enabled"))
+                      backups_enabled=settings.section("backups").get("enabled"), departing=departing)
 
     @router.post("/users", response_class=HTMLResponse)
     async def create_user(request: Request, csrf: str = Form(""), username: str = Form(""),
@@ -416,6 +418,10 @@ def create_admin_router(ctx: ServerContext) -> APIRouter:
                       recovery_enabled=bool(settings.section("recovery").get("enabled")),
                       recovery_status=vault_reset.vault_recovery_status(store.read_version(user_id)) if store.get_meta(user_id) else None,
                       escrow_key_id=(_escrow() or {}).get("key_id"),
+                      offboard=ctx.offboarding.get(user_id),
+                      offboard_progress=offboarding.progress(ctx.offboarding.get(user_id)),
+                      offboard_statuses=offboarding.STATUSES,
+                      successors=_successor_choices(user_id),
                       attachments_used=ctx.attachments.usage(user_id))
 
     def _user(sess_err, user_id):
@@ -619,6 +625,53 @@ def create_admin_router(ctx: ServerContext) -> APIRouter:
         audit.add("report_pdf_downloaded", actor=actor(sess), ip=client_ip(request), users=len(rows))
         return Response(data, media_type="application/pdf", headers={
             "Content-Disposition": f'attachment; filename="raport-bezpieczenstwa-{datetime.now():%Y%m%d}.pdf"'})
+
+    def _compliance_data(days: int):
+        public = ctx.public_url() or ""
+        return compliance.collect(ctx, days, SERVER_VERSION, tls=bool(config.tls_cert) or public.startswith("https://"),
+                                  public_url=public)
+
+    @router.get("/reports/compliance.pdf")
+    async def compliance_pdf(request: Request, days: int = 90):
+        """Raport zgodności (NIS2 / KSC, RODO) dla audytora."""
+        sess, err = guard(request)
+        if err:
+            return err
+        days = days if days in (30, 90, 180, 365) else 90
+        data = await asyncio.to_thread(lambda: compliance.build_compliance_pdf(_compliance_data(days)))
+        audit.add("compliance_report_downloaded", actor=actor(sess), ip=client_ip(request), days=days)
+        return Response(data, media_type="application/pdf", headers={
+            "Content-Disposition": f'attachment; filename="raport-zgodnosci-{datetime.now():%Y%m%d}.pdf"'})
+
+    @router.get("/reports/policy.pdf")
+    async def policy_pdf(request: Request):
+        """Polityka zarządzania hasłami wygenerowana z bieżących ustawień."""
+        sess, err = guard(request)
+        if err:
+            return err
+        data = await asyncio.to_thread(lambda: compliance.build_policy_pdf(_compliance_data(30)))
+        audit.add("policy_document_downloaded", actor=actor(sess), ip=client_ip(request))
+        return Response(data, media_type="application/pdf", headers={
+            "Content-Disposition": f'attachment; filename="polityka-zarzadzania-haslami-{datetime.now():%Y%m%d}.pdf"'})
+
+    # ------------------------------------------------------------ o programie
+    @router.get("/about", response_class=HTMLResponse)
+    async def about_page(request: Request):
+        sess, err = guard(request, role="any")
+        if err:
+            return err
+        import platform
+        import fastapi
+        import server as srv
+        line = srv.product_line(SERVER_VERSION)
+        outdated = sum(1 for d in devices.list() if not d.get("revoked") and d.get("app_version")
+                       and _version_tuple(srv.product_line(d["app_version"]) + ".0") < _version_tuple(line + ".0"))
+        app_release = getattr(ctx.app_download, "_cache", None)  # bez łączenia z GitHubem przy wyświetlaniu strony
+        return render(request, "about.html", sess, line=line, latest_app=(app_release or {}).get("version"),
+                      outdated=outdated, python_version=platform.python_version(), fastapi_version=fastapi.__version__,
+                      platform=f"{platform.system()} {platform.release()}", author=srv.AUTHOR,
+                      author_github=srv.AUTHOR_GITHUB, server_repo=srv.SERVER_REPOSITORY_URL, app_repo=srv.APP_REPOSITORY_URL,
+                      copyright=srv.COPYRIGHT)
 
     # ------------------------------------------------------------ stan serwera
     @router.get("/status", response_class=HTMLResponse)
@@ -986,6 +1039,149 @@ def create_admin_router(ctx: ServerContext) -> APIRouter:
         flash(sess, "temp_password", f"Hasło główne użytkownika {user.get('display_name') or user_id} zostało zresetowane.",
               code=temp_password)
         return back
+
+    # ------------------------------------------------------------ odejście pracownika (offboarding)
+    def _successor_choices(user_id: str):
+        return [u for u in users.list() if u["user_id"] != user_id and not u.get("disabled") and store.get_meta(u["user_id"])]
+
+    @router.post("/users/{user_id}/offboard")
+    async def user_offboard(request: Request, user_id: str, csrf: str = Form(""), it_password: str = Form(""),
+                            successor: str = Form(""), confirm: str = Form("")):
+        sess, user, err = _user(guard(request, csrf=csrf), user_id)
+        if err:
+            return err
+        back = redirect(f"/admin/users/{user_id}#odejscie")
+        if confirm.strip().lower() != user["username"]:
+            flash(sess, "error", "Aby rozpocząć odejście pracownika, wpisz dokładnie jego login.")
+            return back
+        if ctx.offboarding.get(user_id):
+            flash(sess, "error", "Odejście tego pracownika jest już w toku.")
+            return back
+        successor = successor.strip()
+        successor_user = users.get(successor) if successor else None
+        if successor and (not successor_user or successor == user_id or successor_user.get("disabled")):
+            flash(sess, "error", "Wybierz aktywnego następcę (innego niż odchodzący pracownik).")
+            return back
+        if successor and not it_password:
+            flash(sess, "error", "Przekazanie wpisów następcy wymaga hasła działu IT.")
+            return back
+
+        limiter_id = f"admin:{sess['username']}"
+        items, transferred, attachments_copied, note = [], 0, 0, ""
+        meta = store.get_meta(user_id)
+        key_file = _escrow()
+        if it_password and meta and key_file is not None:
+            blocked, wait = reset_limiter.is_blocked(limiter_id)
+            if blocked:
+                flash(sess, "error", f"Zbyt wiele błędnych haseł działu IT. Spróbuj za {max(1, wait // 60)} min.")
+                return back
+            blob = store.read_version(user_id)
+            succ_meta = store.get_meta(successor) if successor else None
+            succ_blob = store.read_version(successor) if succ_meta else None
+            if successor and succ_blob is None:
+                flash(sess, "error", "Następca nie ma jeszcze sejfu na serwerze – niech raz odblokuje aplikację.")
+                return back
+
+            def _work():
+                private = vault_reset.load_private_key(key_file, it_password)
+                opened = vault_reset.open_vault(blob, private)
+                result = {"items": offboarding.checklist_from_vault(opened.data)}
+                if successor:
+                    target = vault_reset.open_vault(succ_blob, private)
+                    count, att_ids = offboarding.transfer_entries(opened.data, target.data,
+                                                                  user.get("display_name") or user_id)
+                    result.update(transferred=count, attachments=att_ids, successor_blob=target.seal())
+                return result
+
+            try:
+                result = await asyncio.to_thread(_work)
+            except vault_reset.WrongItPassword as e:
+                if reset_limiter.fail(limiter_id):
+                    audit.add("admin_login_blocked", actor=actor(sess), ip=client_ip(request), reason="hasło działu IT")
+                audit.add("vault_reset_failed", actor=actor(sess), ip=client_ip(request), user=user_id, reason=str(e))
+                flash(sess, "error", str(e))
+                return back
+            except vault_reset.ResetError as e:
+                if successor:
+                    flash(sess, "error", f"Nie można przekazać wpisów: {e}")
+                    return back
+                result, note = {"items": []}, str(e)
+            reset_limiter.success(limiter_id)
+            items = result["items"]
+            if successor:
+                try:
+                    store.write(successor, result["successor_blob"], succ_meta["version"],
+                                f"Przekazanie od {user.get('display_name') or user_id} ({sess['username']})")
+                except (VersionConflictError, InvalidVaultError):
+                    flash(sess, "error", "Sejf następcy zmienił się w trakcie – spróbuj ponownie.")
+                    return back
+                transferred = result["transferred"]
+                attachments_copied = offboarding.copy_attachments(ctx.attachments, user_id, successor, result["attachments"])
+        elif meta and key_file is None:
+            note = "Klucz firmy nie jest zapisany na serwerze – listę kont uzupełnij ręcznie."
+        elif meta:
+            note = "Bez hasła działu IT – listę kont uzupełnij ręcznie."
+
+        # Blokada konta, odcięcie urządzeń i kodów aktywacyjnych
+        users.set_disabled(user_id, True)
+        revoked = sum(1 for d in devices.list_for_user(user_id) if not d.get("revoked") and devices.revoke(d["device_id"]))
+        codes = enrollments.revoke_for(user_id)
+        record = ctx.offboarding.start(user_id, {
+            "by": sess["username"], "successor": successor, "successor_name": (successor_user or {}).get("display_name", ""),
+            "transferred": transferred, "attachments_copied": attachments_copied, "devices_revoked": revoked,
+            "codes_revoked": codes, "vault_listed": bool(items), "note": note, "items": items})
+        audit.add("user_offboarded", actor=actor(sess), ip=client_ip(request), user=user_id, devices=revoked,
+                  checklist=len(items), successor=successor or "", transferred=transferred)
+        msg = f"Konto zablokowane, odcięto urządzeń: {revoked}. Lista kont do zmiany: {len(items)}."
+        if successor:
+            msg += f" Przekazano {transferred} wpisów do sejfu: {record['successor_name'] or successor}."
+        flash(sess, "ok", msg + (f" {note}" if note else ""))
+        return back
+
+    @router.post("/users/{user_id}/offboarding/item/{item_id}")
+    async def offboarding_item(request: Request, user_id: str, item_id: str, csrf: str = Form(""),
+                               status: str = Form("done")):
+        sess, user, err = _user(guard(request, csrf=csrf), user_id)
+        if err:
+            return err
+        try:
+            item = ctx.offboarding.update_item(user_id, item_id, status, sess["username"])
+        except ValueError as e:
+            flash(sess, "error", str(e))
+            item = None
+        if item:
+            audit.add("offboarding_item", actor=actor(sess), ip=client_ip(request), user=user_id,
+                      account=item["title"][:60], status=status)
+        return redirect(f"/admin/users/{user_id}#odejscie")
+
+    @router.post("/users/{user_id}/offboarding/add")
+    async def offboarding_add(request: Request, user_id: str, csrf: str = Form(""), title: str = Form(""),
+                              url: str = Form(""), username: str = Form("")):
+        sess, user, err = _user(guard(request, csrf=csrf), user_id)
+        if err:
+            return err
+        if not title.strip():
+            flash(sess, "error", "Podaj nazwę konta lub systemu.")
+        else:
+            try:
+                ctx.offboarding.add_item(user_id, title, _http_url(url) or url.strip()[:300], username)
+            except ValueError as e:
+                flash(sess, "error", str(e))
+        return redirect(f"/admin/users/{user_id}#odejscie")
+
+    @router.post("/users/{user_id}/offboarding/finish")
+    async def offboarding_finish(request: Request, user_id: str, csrf: str = Form("")):
+        sess, user, err = _user(guard(request, csrf=csrf), user_id)
+        if err:
+            return err
+        record = ctx.offboarding.finish(user_id)
+        if record:
+            stats = offboarding.progress(record)
+            audit.add("offboarding_finished", actor=actor(sess), ip=client_ip(request), user=user_id,
+                      changed=stats["done"], skipped=stats["skip"], left=stats["todo"])
+            flash(sess, "ok", f"Zakończono odejście pracownika: zmienione {stats['done']}, pominięte {stats['skip']}, "
+                              f"pozostawione {stats['todo']}. Lista kont została usunięta z serwera.")
+        return redirect(f"/admin/users/{user_id}")
 
     def _int(value: str, default: int, lo: int, hi: int) -> int:
         try:
