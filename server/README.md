@@ -99,6 +99,28 @@ próbach; sesja wygasa po 30 min bezczynności; ochrona CSRF; brak JavaScriptu i
 
 **Utrata telefonu z 2FA:** `sudo keystead-admin reset-admin`, potem `sudo keystead-admin setup-token`.
 
+### Odzyskiwanie dostępu (pracownik zapomniał hasła głównego)
+
+1. W aplikacji KeyStead Manager administrator wybiera **Ustawienia → Odzyskiwanie dostępu → Narzędzia administratora →
+   Utwórz klucz odzyskiwania firmy**. Plik klucza prywatnego (zabezpieczony hasłem) zostaje u administratora – nigdy na serwerze.
+2. Klucz publiczny wkleja w panelu: **Ustawienia → Odzyskiwanie dostępu (firma)** i włącza opcję.
+   Aplikacje użytkowników dodają klucz przy synchronizacji (użytkownik widzi jego odcisk; zmiana klucza wymaga jego zgody).
+3. Odzyskanie: karta użytkownika → **Pobierz pakiet odzyskiwania** → w aplikacji „Odzyskaj dostęp użytkownika”
+   (pakiet + plik klucza + hasło) → **Wgraj wynik** w panelu → przekaż użytkownikowi hasło tymczasowe.
+   Przy odblokowaniu aplikacja wymusi ustawienie własnego hasła.
+
+Użytkownicy mogą też utworzyć **osobisty kod odzyskiwania** (Ustawienia w aplikacji) i odzyskać dostęp sami
+(„Nie pamiętam hasła” na ekranie logowania). Obie funkcje wymagają aplikacji 1.2+ na wszystkich urządzeniach.
+
+### Załączniki i raport PDF
+
+- **Załączniki** (skany, licencje, klucze) są szyfrowane w aplikacji osobnym kluczem zapisanym w sejfie –
+  serwer przechowuje tylko zaszyfrowane pliki (`/var/lib/keystead/users/<login>/attachments`). Limity rozmiaru
+  i miejsca na osobę ustawisz w **politykach**; można też całkowicie wyłączyć załączniki.
+- **Raporty → Pobierz raport PDF**: średni wynik, trend z ostatnich 90 dni (serwer zapisuje codzienne podsumowanie),
+  lista użytkowników z liczbami wycieków / słabych / powtórzonych haseł i stanem 2FA. Wyłącznie liczby – bez haseł.
+- Nowe polityki: Windows Hello (i co ile dni hasło główne), Autotype, załączniki.
+
 ### Aktualizacja z panelu
 
 **Stan serwera → Aktualizacja i historia wersji.** Gdy na GitHubie pojawi się nowe wydanie, panel pokazuje przycisk

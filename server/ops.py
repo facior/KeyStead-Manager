@@ -282,6 +282,7 @@ class BackgroundTasks:
         self.audit = audit
         self.state = state
         self.updates = None  # UpdateBridge – ustawiany przez ServerContext
+        self.snapshot = None  # funkcja zapisująca dzienne podsumowanie raportów (ServerContext)
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
 
@@ -322,6 +323,14 @@ class BackgroundTasks:
 
         # 3. Wynik aktualizacji wykonanej przez aktualizator (root nie pisze do dziennika usługi)
         self.record_update_result()
+
+        # 3b. Codzienne podsumowanie bezpieczeństwa (trend w raporcie PDF)
+        if self.snapshot is not None and st.get("last_snapshot_day") != today:
+            try:
+                self.snapshot()
+                self.state.update(last_snapshot_day=today)
+            except Exception:
+                log.exception("Nie udało się zapisać dziennego podsumowania")
 
         # 4. Aktualizacje (raz na dobę)
         u = cfg["updates"]

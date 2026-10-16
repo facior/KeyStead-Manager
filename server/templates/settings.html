@@ -63,8 +63,40 @@
       <label class="check"><input type="checkbox" name="allow_personal_backups" value="1" {% if p.allow_personal_backups %}checked{% endif %}> Pozwól na własne kopie sejfu (USB, Dysk Google, OneDrive, Dropbox, WebDAV)</label>
       <label class="check"><input type="checkbox" name="security_report" value="1" {% if p.security_report %}checked{% endif %}> Zbieraj raporty bezpieczeństwa (tylko liczby – bez haseł)</label>
       <label class="check"><input type="checkbox" name="require_user_2fa" value="1" {% if p.require_user_2fa %}checked{% endif %}> Wymagaj 2FA użytkownika przy dodawaniu nowych urządzeń</label>
+      <label class="check"><input type="checkbox" name="allow_quick_unlock" value="1" {% if p.allow_quick_unlock %}checked{% endif %}> Pozwól odblokowywać sejf przez Windows Hello (odcisk palca / twarz / PIN)</label>
+      <label class="check"><input type="checkbox" name="allow_autotype" value="1" {% if p.allow_autotype %}checked{% endif %}> Pozwól na Autotype (wpisywanie loginu i hasła skrótem klawiszowym)</label>
+      <label class="check"><input type="checkbox" name="allow_attachments" value="1" {% if p.allow_attachments %}checked{% endif %}> Pozwól na załączniki (zaszyfrowane pliki przy wpisach)</label>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <div class="field"><label for="qd">Windows Hello – hasło główne co (dni)</label>
+        <input id="qd" name="quick_unlock_days" type="number" min="1" max="90" value="{{ p.quick_unlock_days }}">
+        <p class="help">Po tylu dniach użytkownik musi wpisać hasło główne (żeby go nie zapomniał).</p></div>
+      <div class="field"><label for="am">Maks. rozmiar załącznika (MB)</label>
+        <input id="am" name="max_attachment_mb" type="number" min="1" max="50" value="{{ p.max_attachment_mb }}"></div>
+      <div class="field"><label for="aq">Miejsce na załączniki na użytkownika (MB)</label>
+        <input id="aq" name="attachment_quota_mb" type="number" min="1" max="10000" value="{{ p.attachment_quota_mb }}"></div>
     </div>
     <button type="submit" style="margin-top:12px">Zapisz polityki</button>
+  </form>
+</div>
+
+<div class="card" id="odzyskiwanie">
+  <h2>🛟 Odzyskiwanie dostępu (firma)</h2>
+  {% set r = cfg.recovery %}
+  <p class="sub" style="margin-top:0">Gdy pracownik zapomni hasła głównego, administrator może przywrócić mu dostęp kluczem odzyskiwania firmy.
+    Klucz prywatny jest przechowywany <b>wyłącznie u administratora</b> (plik zabezpieczony hasłem) – serwer zna tylko klucz publiczny i nie może odczytać sejfów.</p>
+  <ol class="steps" style="margin-bottom:12px">
+    <li>W aplikacji KeyStead Manager: Ustawienia → Odzyskiwanie dostępu → <b>Narzędzia administratora</b> → „Utwórz klucz odzyskiwania firmy”.</li>
+    <li>Zapisz plik klucza w bezpiecznym miejscu (np. na zaszyfrowanym pendrivie) i wklej poniżej klucz publiczny.</li>
+    <li>Aplikacje użytkowników dodadzą klucz przy najbliższej synchronizacji (użytkownik zobaczy jego odcisk). Wymaga KeyStead Manager 1.2 lub nowszego na wszystkich urządzeniach.</li>
+  </ol>
+  <form method="post" action="/admin/settings/recovery">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="field"><label for="rk">Klucz publiczny odzyskiwania (ksrec1:…)</label>
+      <input id="rk" name="public_key" class="mono" value="{{ r.public_key }}" placeholder="ksrec1:..."></div>
+    {% if recovery_key_id %}<p class="help">Odcisk klucza: <span class="mono">{{ recovery_key_id }}</span> – porównaj z odciskiem w Narzędziach administratora.</p>{% endif %}
+    <label class="check"><input type="checkbox" name="enabled" value="1" {% if r.enabled %}checked{% endif %}> Włącz odzyskiwanie dostępu przez firmę</label>
+    <button type="submit" style="margin-top:12px">Zapisz</button>
   </form>
 </div>
 

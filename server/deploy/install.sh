@@ -117,7 +117,8 @@ esac
 
 info "Instalacja pakietów systemowych"
 apt-get update -qq
-apt-get install -y -qq python3 python3-venv curl sudo openssl openssh-client >/dev/null
+# fonts-dejavu-core: polskie znaki w raporcie PDF (bez niej raport używa znaków bez ogonków)
+apt-get install -y -qq python3 python3-venv curl sudo openssl openssh-client fonts-dejavu-core >/dev/null
 
 info "Użytkownik systemowy 'keystead'"
 id keystead &>/dev/null || useradd --system --home-dir "$DATA_DIR" --shell /usr/sbin/nologin keystead

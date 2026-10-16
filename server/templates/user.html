@@ -104,11 +104,37 @@
     </tbody>
   </table>
   </div>
-  <p class="muted" style="margin-bottom:0">Przywrócenie zapisuje wybraną wersję jako nową – nic nie jest usuwane. Zawartość jest zaszyfrowana hasłem głównym użytkownika i nie da się jej odczytać na serwerze.</p>
+  <p class="muted" style="margin-bottom:0">Przywrócenie zapisuje wybraną wersję jako nową – nic nie jest usuwane. Zawartość jest zaszyfrowana hasłem głównym użytkownika i nie da się jej odczytać na serwerze.
+    Aplikacja użytkownika potraktuje starszą zawartość jako podejrzaną i poprosi o potwierdzenie („Pobierz wersję z serwera” w panelu synchronizacji).</p>
+  {% if attachments_used.count %}<p class="muted" style="margin-bottom:0">📎 Załączniki: {{ attachments_used.count }} · {{ attachments_used.bytes|size }} (zaszyfrowane)</p>{% endif %}
   {% else %}
   <p class="muted" style="margin:0">Użytkownik nie wysłał jeszcze sejfu.</p>
   {% endif %}
 </div>
+
+{% if is_admin and recovery_enabled and meta %}
+<div class="card" id="odzyskiwanie">
+  <h2>🛟 Odzyskiwanie dostępu</h2>
+  <p class="muted" style="margin-top:0">Użytkownik zapomniał hasła głównego? Przywróć dostęp kluczem odzyskiwania firmy:</p>
+  <ol class="steps" style="margin-bottom:12px">
+    <li>Pobierz pakiet odzyskiwania (zaszyfrowany sejf – serwer nie może go odczytać).</li>
+    <li>W aplikacji KeyStead Manager: Ustawienia → Odzyskiwanie dostępu → Narzędzia administratora → „Odzyskaj dostęp użytkownika”
+      (potrzebny plik klucza firmy i jego hasło). Aplikacja ustawi hasło tymczasowe.</li>
+    <li>Wgraj tutaj plik wyniku i przekaż użytkownikowi hasło tymczasowe – przy odblokowaniu musi je od razu zmienić.</li>
+  </ol>
+  <div class="row">
+    <form method="get" action="/admin/users/{{ user.user_id }}/recovery-package" class="inline">
+      <button type="submit" class="secondary">⬇️ Pobierz pakiet odzyskiwania</button>
+    </form>
+    <form method="post" action="/admin/users/{{ user.user_id }}/recovery-result" enctype="multipart/form-data" class="inline">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="file" name="result" accept=".ksreset" required>
+      <button type="submit">Wgraj wynik odzyskiwania</button>
+    </form>
+  </div>
+  <p class="help">Sejfy użytkowników ze starszą aplikacją (przed włączeniem odzyskiwania) nie zawierają klucza firmy – wtedy odzyskanie nie jest możliwe.</p>
+</div>
+{% endif %}
 
 {% if is_admin %}
 <div class="card">

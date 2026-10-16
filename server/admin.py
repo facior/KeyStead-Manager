@@ -12,10 +12,13 @@ Zabezpieczenia:
 - każdy formularz chroniony tokenem CSRF, brak JavaScriptu, restrykcyjna polityka CSP.
 """
 
+import asyncio
+import base64
 import csv
 import hashlib
 import hmac
 import io
+import json
 import os
 import re
 import secrets
@@ -33,8 +36,10 @@ from server import SERVER_VERSION
 from server.accounts import ROLES, new_totp_secret, totp_uri
 from server.context import LOGO_MAX_BYTES, PNG_MAGIC, ServerContext
 from server.ops import _version_tuple, data_size, disk_status
+from server.report_pdf import build_pdf, org_rows, org_summary
 from server.security import RateLimiter, client_ip, ip_allowed, is_public_edge_request, parse_networks
-from server.settings import EVENT_LABELS
+from server.settings import EVENT_LABELS, org_key_id
+from server.storage import InvalidVaultError, VersionConflictError
 from server.updater import STEPS, UpdateError
 
 SESSION_COOKIE = "ks_admin"
@@ -406,7 +411,9 @@ def create_admin_router(ctx: ServerContext) -> APIRouter:
                       report=ctx.reports.get(user_id),
                       has_2fa=users.has_totp(user_id),
                       email_ready=email_ready,
-                      policy=settings.section("policy"))
+                      policy=settings.section("policy"),
+                      recovery_enabled=bool(settings.section("recovery").get("enabled")),
+                      attachments_used=ctx.attachments.usage(user_id))
 
     def _user(sess_err, user_id):
         sess, err = sess_err
@@ -597,6 +604,19 @@ def create_admin_router(ctx: ServerContext) -> APIRouter:
         return render(request, "reports.html", sess, rows=rows, summary=summary,
                       enabled=settings.section("policy").get("security_report"))
 
+    @router.get("/reports.pdf")
+    async def reports_pdf(request: Request):
+        sess, err = guard(request)
+        if err:
+            return err
+        rows = org_rows(ctx)
+        ctx.report_history.record(org_summary(rows))  # dzisiejszy punkt trendu – zawsze aktualny w raporcie
+        company = settings.section("branding").get("company_name", "")
+        data = await asyncio.to_thread(build_pdf, company, rows, ctx.report_history.load(), SERVER_VERSION)
+        audit.add("report_pdf_downloaded", actor=actor(sess), ip=client_ip(request), users=len(rows))
+        return Response(data, media_type="application/pdf", headers={
+            "Content-Disposition": f'attachment; filename="raport-bezpieczenstwa-{datetime.now():%Y%m%d}.pdf"'})
+
     # ------------------------------------------------------------ stan serwera
     @router.get("/status", response_class=HTMLResponse)
     async def status_page(request: Request):
@@ -769,9 +789,83 @@ def create_admin_router(ctx: ServerContext) -> APIRouter:
         sess, err = guard(request)
         if err:
             return err
-        return render(request, "settings.html", sess, cfg=settings.all(), event_labels=EVENT_LABELS,
+        cfg = settings.all()
+        return render(request, "settings.html", sess, cfg=cfg, event_labels=EVENT_LABELS,
+                      recovery_key_id=org_key_id(cfg["recovery"].get("public_key", "")),
                       network={"host": config.host, "port": config.port, "api": ", ".join(config.api_allowed_networks),
                                "admin": ", ".join(config.admin_allowed_networks), "tls": bool(config.tls_cert)})
+
+    @router.post("/settings/recovery")
+    async def settings_recovery(request: Request, csrf: str = Form(""), public_key: str = Form(""),
+                                enabled: str = Form("")):
+        sess, err = guard(request, csrf=csrf)
+        if err:
+            return err
+        public_key = public_key.strip()
+        if public_key and not org_key_id(public_key):
+            flash(sess, "error", "To nie jest prawidłowy klucz publiczny odzyskiwania (powinien zaczynać się od „ksrec1:”).")
+            return redirect("/admin/settings#odzyskiwanie")
+        if enabled and not public_key:
+            flash(sess, "error", "Najpierw wklej klucz publiczny odzyskiwania firmy.")
+            return redirect("/admin/settings#odzyskiwanie")
+        before = settings.section("recovery")
+        settings.update("recovery", {"enabled": bool(enabled), "public_key": public_key})
+        audit.add("recovery_settings_changed", actor=actor(sess), ip=client_ip(request), enabled=bool(enabled),
+                  key_id=org_key_id(public_key), previous_key_id=org_key_id(before.get("public_key", "")))
+        flash(sess, "ok", "Zapisano ustawienia odzyskiwania dostępu." + (
+            f" Odcisk klucza: {org_key_id(public_key)}." if public_key else ""))
+        return redirect("/admin/settings#odzyskiwanie")
+
+    # ------------------------------------------------------------ odzyskiwanie dostępu użytkownika
+    @router.get("/users/{user_id}/recovery-package")
+    async def recovery_package(request: Request, user_id: str):
+        """Zaszyfrowany sejf użytkownika do odszyfrowania kluczem firmy w aplikacji administratora."""
+        sess, user, err = _user(guard(request), user_id)
+        if err:
+            return err
+        meta = store.get_meta(user_id)
+        blob = store.read_version(user_id) if meta else None
+        if blob is None:
+            flash(sess, "error", "Użytkownik nie ma jeszcze sejfu na serwerze.")
+            return redirect(f"/admin/users/{user_id}")
+        package = {"type": "keystead-recovery-package", "version": 1, "user": user_id,
+                   "display_name": user.get("display_name", user_id), "vault_version": meta["version"],
+                   "expected_key_id": org_key_id(settings.section("recovery").get("public_key", "")),
+                   "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                   "blob": base64.b64encode(blob).decode("ascii")}
+        audit.add("recovery_package_downloaded", actor=actor(sess), ip=client_ip(request), user=user_id,
+                  version=meta["version"])
+        return Response(json.dumps(package), media_type="application/json", headers={
+            "Content-Disposition": f'attachment; filename="odzyskiwanie-{user_id}.ksrecovery"'})
+
+    @router.post("/users/{user_id}/recovery-result")
+    async def recovery_result(request: Request, user_id: str, csrf: str = Form(""),
+                              result: Optional[UploadFile] = File(None)):
+        sess, user, err = _user(guard(request, csrf=csrf), user_id)
+        if err:
+            return err
+        try:
+            data = json.loads((await result.read(config.max_vault_bytes * 2)).decode("utf-8")) if result else {}
+            if data.get("type") != "keystead-recovery-result" or data.get("user") != user_id:
+                raise ValueError("To nie jest wynik odzyskiwania dla tego użytkownika.")
+            blob = base64.b64decode(data["blob"], validate=True)
+            base_version = int(data["base_version"])
+        except (ValueError, KeyError, TypeError, UnicodeDecodeError) as e:
+            flash(sess, "error", f"Nieprawidłowy plik wyniku odzyskiwania: {e}")
+            return redirect(f"/admin/users/{user_id}")
+        try:
+            meta = store.write(user_id, blob, base_version, f"Odzyskiwanie dostępu ({sess['username']})")
+        except VersionConflictError:
+            flash(sess, "error", "Sejf użytkownika zmienił się po pobraniu pakietu. Pobierz pakiet ponownie i powtórz odzyskiwanie.")
+            return redirect(f"/admin/users/{user_id}")
+        except InvalidVaultError as e:
+            flash(sess, "error", str(e))
+            return redirect(f"/admin/users/{user_id}")
+        audit.add("vault_recovered_by_admin", actor=actor(sess), ip=client_ip(request), user=user_id,
+                  version=meta["version"])
+        flash(sess, "ok", f"Dostęp przywrócony (wersja v{meta['version']}). Przekaż użytkownikowi hasło tymczasowe – "
+                          "aplikacja wymusi jego zmianę przy pierwszym odblokowaniu.")
+        return redirect(f"/admin/users/{user_id}")
 
     def _int(value: str, default: int, lo: int, hi: int) -> int:
         try:
@@ -816,6 +910,12 @@ def create_admin_router(ctx: ServerContext) -> APIRouter:
             "allow_personal_backups": bool(form.get("allow_personal_backups")),
             "security_report": bool(form.get("security_report")),
             "require_user_2fa": bool(form.get("require_user_2fa")),
+            "allow_quick_unlock": bool(form.get("allow_quick_unlock")),
+            "quick_unlock_days": _int(form.get("quick_unlock_days"), 14, 1, 90),
+            "allow_autotype": bool(form.get("allow_autotype")),
+            "allow_attachments": bool(form.get("allow_attachments")),
+            "max_attachment_mb": _int(form.get("max_attachment_mb"), 10, 1, 50),
+            "attachment_quota_mb": _int(form.get("attachment_quota_mb"), 200, 1, 10000),
         })
         audit.add("settings_changed", actor=actor(sess), ip=client_ip(request), section="policy")
         flash(sess, "ok", "Zapisano polityki bezpieczeństwa – aplikacje zastosują je przy najbliższej synchronizacji.")

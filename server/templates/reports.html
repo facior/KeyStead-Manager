@@ -5,6 +5,9 @@
 <h1>Raport bezpieczeństwa</h1>
 <p class="sub">Zbiorcze wyniki audytu sejfów przesyłane przez aplikacje użytkowników. Serwer otrzymuje <b>wyłącznie liczby</b> –
   nigdy hasła, nazwy kont ani adresy stron.</p>
+<form method="get" action="/admin/reports.pdf" style="margin-bottom:16px">
+  <button type="submit" class="secondary">📄 Pobierz raport PDF (podsumowanie, trend, użytkownicy)</button>
+</form>
 
 {% if not enabled %}
 <div class="flash error">Raporty są wyłączone w politykach bezpieczeństwa. <a href="/admin/settings#polityki">Włącz je</a>, aby aplikacje zaczęły je przesyłać.</div>

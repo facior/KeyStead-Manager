@@ -29,6 +29,17 @@ DEFAULTS: Dict[str, Any] = {
         "allow_personal_backups": True,  # kopie do prywatnych chmur / na USB z poziomu aplikacji
         "security_report": True,       # aplikacja przesyła zbiorczy wynik audytu (tylko liczby)
         "require_user_2fa": False,     # dodanie urządzenia wymaga kodu z aplikacji uwierzytelniającej
+        "allow_quick_unlock": True,    # Windows Hello w aplikacji
+        "quick_unlock_days": 14,       # co ile dni hasło główne zamiast Windows Hello
+        "allow_autotype": True,        # wpisywanie loginu i hasła skrótem klawiszowym
+        "allow_attachments": True,     # zaszyfrowane pliki przy wpisach
+        "max_attachment_mb": 10,
+        "attachment_quota_mb": 200,
+    },
+    # Odzyskiwanie dostępu przez firmę: tylko klucz PUBLICZNY (prywatny ma administrator poza serwerem)
+    "recovery": {
+        "enabled": False,
+        "public_key": "",
     },
     "notifications": {
         "email": {
@@ -108,8 +119,32 @@ class SettingsStore:
 
     def public_policy(self) -> Dict[str, Any]:
         """Polityki przekazywane aplikacji (bez danych wewnętrznych serwera)."""
-        return dict(self.section("policy"))
+        policy = dict(self.section("policy"))
+        recovery = self.section("recovery")
+        key = recovery.get("public_key", "") if recovery.get("enabled") else ""
+        policy["recovery_public_key"] = key if org_key_id(key) else ""
+        return policy
 
     def public_branding(self) -> Dict[str, Any]:
         b = self.section("branding")
         return {"company_name": b["company_name"], "accent_color": b["accent_color"], "has_logo": bool(b["has_logo"])}
+
+
+ORG_PUBLIC_PREFIX = "ksrec1:"
+
+
+def org_key_id(public_text: str) -> str:
+    """Odcisk klucza odzyskiwania firmy (ten sam algorytm co w aplikacji – core/crypto.py) albo ''."""
+    import base64
+    import hashlib
+    text = (public_text or "").strip()
+    if not text.startswith(ORG_PUBLIC_PREFIX):
+        return ""
+    try:
+        raw = base64.b64decode(text[len(ORG_PUBLIC_PREFIX):], validate=True)
+    except ValueError:
+        return ""
+    if len(raw) != 32:
+        return ""
+    digest = hashlib.sha256(b"keystead-org-key" + raw).hexdigest()[:16].upper()
+    return "-".join(digest[i:i + 4] for i in range(0, 16, 4))

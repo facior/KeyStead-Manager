@@ -28,6 +28,7 @@ from pydantic import BaseModel, Field
 from server import API_PREFIX, SERVER_VERSION
 from server.accounts import new_totp_secret, totp_uri
 from server.admin import admin_security_headers, create_admin_router
+from server.attachments import AttachmentError
 from server.config import ServerConfig
 from server.context import ServerContext
 from server.security import (BodyLimitMiddleware, RateLimiter, client_ip, ip_allowed, is_public_edge_request,
@@ -112,11 +113,18 @@ def create_app(config: Optional[ServerConfig] = None) -> FastAPI:
             admin_security_headers(response)
         return response
 
+    def attachment_limit_bytes() -> int:
+        return int(settings.section("policy").get("max_attachment_mb") or 10) * 1024 * 1024 + 64
+
     def body_limit(method: str, path: str) -> int:
         if method == "PUT" and path == f"{API_PREFIX}/vault":
             return config.max_vault_bytes + 1024
         if path == "/admin/settings/branding":
             return LOGO_BODY_LIMIT
+        if path.startswith("/admin/users/") and path.endswith("/recovery-result"):
+            return config.max_vault_bytes * 2 + 64 * 1024  # sejf w base64 + narzut formularza
+        if method == "PUT" and path.startswith(f"{API_PREFIX}/attachments/"):
+            return attachment_limit_bytes() + 1024
         return DEFAULT_BODY_LIMIT
 
     # Dodany jako ostatni = działa jako pierwszy (przed odczytem treści przez kogokolwiek)
@@ -297,6 +305,52 @@ def create_app(config: Optional[ServerConfig] = None) -> FastAPI:
         audit.add("vault_saved", actor=device["user_id"], ip=client_ip(request), device=device["name"], version=meta["version"])
         log.info("Zapisano wersję %s sejfu użytkownika %s (urządzenie: %s)", meta["version"], device["user_id"], device["name"])
         return JSONResponse(content={"meta": meta}, headers=_meta_headers(meta))
+
+    # ------------------------------------------------------------ załączniki (zaszyfrowane po stronie aplikacji)
+    def _attachments_allowed() -> None:
+        if settings.section("policy").get("allow_attachments") is False:
+            raise HTTPException(status_code=403, detail="Załączniki są wyłączone przez administratora.")
+
+    @app.get(f"{API_PREFIX}/attachments")
+    async def attachments_list(device=Depends(current_device)):
+        policy = settings.section("policy")
+        usage = ctx.attachments.usage(device["user_id"])
+        return {"items": ctx.attachments.list(device["user_id"]), "used": usage["bytes"],
+                "quota": int(policy.get("attachment_quota_mb") or 200) * 1024 * 1024,
+                "max_file": attachment_limit_bytes()}
+
+    @app.put(f"{API_PREFIX}/attachments/{{att_id}}")
+    async def attachment_put(att_id: str, request: Request, device=Depends(current_device)):
+        _attachments_allowed()
+        data = bytearray()
+        limit = attachment_limit_bytes()
+        async for chunk in request.stream():
+            data.extend(chunk)
+            if len(data) > limit:
+                raise HTTPException(status_code=413, detail="Załącznik jest zbyt duży.")
+        quota = int(settings.section("policy").get("attachment_quota_mb") or 200) * 1024 * 1024
+        try:
+            info = await asyncio.to_thread(ctx.attachments.put, device["user_id"], att_id, bytes(data), limit, quota)
+        except AttachmentError as e:
+            raise HTTPException(status_code=e.status, detail=str(e))
+        return info
+
+    @app.get(f"{API_PREFIX}/attachments/{{att_id}}")
+    async def attachment_get(att_id: str, device=Depends(current_device)):
+        try:
+            data = ctx.attachments.get(device["user_id"], att_id)
+        except AttachmentError as e:
+            raise HTTPException(status_code=e.status, detail=str(e))
+        if data is None:
+            raise HTTPException(status_code=404, detail="Nie ma takiego załącznika.")
+        return Response(data, media_type="application/octet-stream")
+
+    @app.delete(f"{API_PREFIX}/attachments/{{att_id}}")
+    async def attachment_delete(att_id: str, device=Depends(current_device)):
+        try:
+            return {"deleted": ctx.attachments.delete(device["user_id"], att_id)}
+        except AttachmentError as e:
+            raise HTTPException(status_code=e.status, detail=str(e))
 
     @app.get(f"{API_PREFIX}/vault/history")
     async def vault_history(device=Depends(current_device)):

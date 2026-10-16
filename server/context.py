@@ -6,6 +6,8 @@ import os
 from dataclasses import dataclass
 
 from server.accounts import AdminStore, AuditLog, EnrollmentStore, UserStore
+from server.attachments import AttachmentStore
+from server.report_pdf import ReportHistory, org_rows, org_summary
 from server.config import ServerConfig
 from server.devices import DeviceRegistry
 from server.notify import Notifier
@@ -35,6 +37,8 @@ class ServerContext:
     tasks: BackgroundTasks
     updates: UpdateBridge = None
     app_download: AppDownload = None
+    attachments: AttachmentStore = None
+    report_history: ReportHistory = None
 
     def download_link(self) -> str:
         """Link do pobrania aplikacji podawany użytkownikom (przez serwer – działa też bez dostępu do panelu)."""
@@ -78,6 +82,9 @@ class ServerContext:
         ctx.updates = UpdateBridge(UpdaterPaths.from_env(config.data_dir))
         ctx.tasks.updates = ctx.updates
         ctx.app_download = AppDownload(settings)
+        ctx.attachments = AttachmentStore(config.data_dir)
+        ctx.report_history = ReportHistory(config.data_dir)
+        ctx.tasks.snapshot = lambda: ctx.report_history.record(org_summary(org_rows(ctx)))
         audit.add_listener(ctx.notifier.on_audit_event)
         ctx.apply_runtime_settings()
         return ctx
