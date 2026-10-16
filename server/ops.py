@@ -184,11 +184,12 @@ def check_latest_release(repository: str, timeout: float = 10.0) -> Optional[Dic
     return {"version": tag.lstrip("v"), "url": data.get("html_url", ""), "published_at": data.get("published_at", "")}
 
 
-APP_TAG_PREFIX = "app-v"
+APP_TAG_PREFIX = "v"
+APP_REPOSITORY = "facior/KeyStead"
 
 
-def find_app_release(repository: str, timeout: float = 10.0) -> Optional[Dict[str, str]]:
-    """Najnowsze wydanie aplikacji KeyStead Manager (tag app-vX.Y.Z) i adres jego instalatora."""
+def find_app_release(repository: str = APP_REPOSITORY, timeout: float = 10.0) -> Optional[Dict[str, str]]:
+    """Najnowsze wydanie aplikacji KeyStead Manager (repozytorium aplikacji, tag vX.Y.Z) i adres instalatora."""
     url = f"https://api.github.com/repos/{repository}/releases?per_page=30"
     req = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json", "User-Agent": "KeyStead-Server"})
     try:
@@ -224,7 +225,7 @@ class AppDownload:
         custom = self.settings.section("general").get("app_download_url")
         if custom:
             return custom
-        repo = self.settings.section("updates").get("repository") or "facior/KeyStead-Manager"
+        repo = self.settings.section("updates").get("app_repository") or APP_REPOSITORY
         with self._lock:
             if time.time() - self._cached_at > self.ttl:
                 found = find_app_release(repo)

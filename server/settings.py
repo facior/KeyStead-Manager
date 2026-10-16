@@ -55,7 +55,8 @@ DEFAULTS: Dict[str, Any] = {
     },
     "updates": {
         "check": True,
-        "repository": "facior/KeyStead-Manager",
+        "repository": "facior/KeyStead-Manager",   # wydania serwera
+        "app_repository": "facior/KeyStead",       # wydania aplikacji (link /download)
     },
 }
 
