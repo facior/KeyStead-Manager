@@ -1,18 +1,30 @@
 # 🛡️ KeyStead Server
 
-Serwer synchronizacji dla menedżera haseł **KeyStead Manager**.
+**Self-hosted sync and administration server for the [KeyStead Manager](https://github.com/facior/KeyStead)
+password manager.**
 
-Serwer przechowuje **wyłącznie zaszyfrowane sejfy** użytkowników wraz z historią wersji.
-Hasła są szyfrowane i odszyfrowywane tylko w aplikacji na komputerze użytkownika (zero-knowledge) –
-ani administrator, ani ktoś, kto przejmie serwer, nie jest w stanie ich odczytać.
+KeyStead Server stores **only encrypted vaults** and their version history. Passwords are encrypted and decrypted
+exclusively in the KeyStead Manager app on each user's computer (zero-knowledge). Neither the server administrator
+nor anyone who takes over the server can read them.
 
-- 👥 wielu użytkowników, każdy z własnym sejfem
-- 🖥️ panel WEB administratora (logowanie z obowiązkowym 2FA)
-- 📱 dołączanie urządzeń jednorazowymi kodami aktywacyjnymi
-- 🕓 historia wersji i przywracanie jednym kliknięciem
-- 🌐 działa bez publicznego IP: Tailscale, Tailscale Funnel, Cloudflare Tunnel, firmowy VPN lub serwer pośredniczący
+- 👥 **Multiple users**, each with their own vault and devices
+- 🖥️ **Web admin panel** with mandatory 2FA: accounts, devices, audit log, backups, updates
+- 📱 **Device enrollment** with one-time activation codes
+- 🛡️ **Security policies** enforced in the app: auto-lock, clipboard, master password strength, offline time,
+  device limits, Autotype, attachments, Windows Hello
+- 🕓 **Version history** with one-click restore
+- 🔑 **Account recovery** for employees who forgot their master password
+- 👋 **Employee offboarding:** block the account, revoke all devices, hand entries over to a successor and get a
+  checklist of passwords to change
+- 📋 **Compliance reports (PDF)** for NIS2 / the Polish National Cybersecurity System Act (KSC) and GDPR, plus a
+  ready-to-use password management policy
+- ⬆️ **Signed updates from the panel**, with automatic rollback if the new version fails
+- 🌐 **No public IP needed:** works over Tailscale, Tailscale Funnel, Cloudflare Tunnel, your company VPN or an
+  existing reverse proxy
 
-## Szybki start (Ubuntu 22.04 / 24.04, Debian 12)
+> **Language:** the admin panel and the app are currently in **Polish**.
+
+## Quick start (Ubuntu 22.04 / 24.04, Debian 12)
 
 ```bash
 git clone https://github.com/facior/KeyStead-Manager.git
@@ -20,29 +32,31 @@ cd KeyStead-Manager
 sudo bash server/deploy/install.sh
 ```
 
-Instalator zapyta o sposób dostępu i na końcu wypisze adres serwera oraz jednorazowy token
-do pierwszej konfiguracji panelu administratora (`<adres serwera>/admin`).
+The installer asks how users will reach the server. When it finishes, it prints the server address and
+a one-time token for setting up the admin panel at `<server address>/admin`.
 
-Przykład – serwer dostępny tylko w Twojej sieci Tailscale:
+Example: a server reachable only from your Tailscale network:
 
 ```bash
 sudo bash server/deploy/install.sh --mode tailscale
 ```
 
-Pełna dokumentacja (tryby dostępu, panel administratora, polecenia, bezpieczeństwo):
+**Full guide** (access modes, admin panel, recovery, offboarding, updates, commands, security):
 **[server/README.md](server/README.md)**
 
-## Wymagania
+## Requirements
 
-- Ubuntu 22.04+ lub Debian 12+ z systemd
-- Python 3.10+ (instalowany automatycznie)
-- dla trybów Tailscale: zainstalowany i zalogowany Tailscale z włączonymi MagicDNS i HTTPS Certificates
+- Ubuntu 22.04+ or Debian 12+ with systemd
+- Python 3.10+ (installed automatically)
+- For the Tailscale modes: Tailscale installed and logged in, with **MagicDNS** and **HTTPS Certificates** enabled
 
+## Versions
 
-## Wersje, autor i licencja
+The first two numbers are shared by the app and the server; the last one is for fixes in one part only.
+App **2.0.x** works with server **2.0.x** and newer.
 
-- **Numeracja wersji:** pierwsze dwie liczby są wspólne dla aplikacji i serwera (nowe funkcje wydawane razem),
-  ostatnia oznacza poprawki tylko w jednej części. Aplikacja **2.0.x** współpracuje z serwerem **2.0.x** i nowszym.
-- **Autor:** Łukasz Kubieniec – [github.com/facior](https://github.com/facior)
-- **Licencja:** © 2026 Łukasz Kubieniec. Wszelkie prawa zastrzeżone. Oprogramowanie zastrzeżone – udostępnienie kodu
-  nie oznacza udzielenia licencji; szczegóły w pliku [LICENSE](LICENSE).
+## Author and licence
+
+- **Author:** Łukasz Kubieniec – [github.com/facior](https://github.com/facior)
+- **Licence:** © 2026 Łukasz Kubieniec. All rights reserved. This is proprietary software. Publishing the source code
+  does not grant a licence; see [LICENSE](LICENSE).

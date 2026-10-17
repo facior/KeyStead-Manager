@@ -1,202 +1,276 @@
-# KeyStead Server – serwer synchronizacji
+# KeyStead Server – administrator's guide
 
-Serwer przechowuje **wyłącznie zaszyfrowane sejfy** użytkowników wraz z historią wersji.
-Hasło główne nigdy nie opuszcza komputera użytkownika – ani administrator, ani ktoś, kto przejmie serwer,
-nie jest w stanie odczytać haseł.
+KeyStead Server stores **only encrypted vaults** and their version history. Master passwords never leave users'
+computers, so neither the administrator nor anyone who takes over the server can read stored passwords.
 
-Każda firma instaluje własny serwer i sama decyduje, jak użytkownicy się z nim łączą:
-przez Tailscale, dowolny firmowy VPN (WireGuard, OpenVPN, FortiClient, Cisco…), Cloudflare Tunnel
-albo istniejący serwer pośredniczący. Serwer nie wymaga publicznego adresu IP.
+Each company runs its own server and decides how users reach it: Tailscale, any company VPN (WireGuard, OpenVPN,
+FortiClient, Cisco…), Cloudflare Tunnel or an existing reverse proxy. No public IP address is required.
+
+> **Language:** the admin panel and the KeyStead Manager app are currently in **Polish**. Panel and menu names are
+> given in Polish, followed by an English explanation.
+
+**Contents:**
+[1. Installation](#1-installation-ubuntu-2204--2404-debian-12) ·
+[2. Admin panel](#2-admin-panel) ·
+[3. Account recovery](#3-account-recovery) ·
+[4. Employee offboarding](#4-employee-offboarding) ·
+[5. Reports and compliance](#5-reports-and-compliance) ·
+[6. Updates](#6-updates) ·
+[7. For users](#7-for-users) ·
+[8. Server commands](#8-server-commands) ·
+[9. Security summary](#9-security-summary)
 
 ---
 
-## 1. Instalacja (Ubuntu 22.04 / 24.04, Debian 12)
+## 1. Installation (Ubuntu 22.04 / 24.04, Debian 12)
 
-Skopiuj projekt na serwer i w jego katalogu głównym uruchom:
+Copy the project to the server and run this from its root directory:
 
 ```bash
 sudo bash server/deploy/install.sh
 ```
 
-Instalator zapyta o sposób dostępu (lub podaj `--mode`):
+The installer asks how users will connect. You can also pass `--mode`:
 
-| Tryb | Dla kogo | Publiczny IP | Polecenie |
+| Mode | Best for | Public IP | Option |
 |---|---|---|---|
-| **tailscale** | Ty / mała firma w jednej sieci Tailscale – serwer widoczny tylko dla Twoich urządzeń | nie | `--mode tailscale` |
-| **tailscale-funnel** | dostęp z dowolnego komputera przez internet (np. komputer w pracy bez Tailscale) | nie | `--mode tailscale-funnel` |
-| **cloudflare** | firma z własną domeną, dostęp z internetu | nie | `--mode cloudflare --public-url https://vault.firma.pl --cf-token <TOKEN>` |
-| **proxy** | firma z istniejącym nginx / Caddy / Traefik | — | `--mode proxy --public-url https://vault.firma.pl` |
-| **direct** | firma z własnym VPN (WireGuard, OpenVPN, FortiClient…) lub tylko sieć lokalna | nie | `--mode direct --listen 10.8.0.1` |
+| **tailscale** | One person or a small team on one Tailscale network; the server is visible only to your devices | no | `--mode tailscale` |
+| **tailscale-funnel** | Access from any computer over the internet (for example, a work PC without Tailscale) | no | `--mode tailscale-funnel` |
+| **cloudflare** | Companies with their own domain, access from the internet | no | `--mode cloudflare --public-url https://vault.example.com --cf-token <TOKEN>` |
+| **proxy** | Companies with an existing nginx, Caddy or Traefik | — | `--mode proxy --public-url https://vault.example.com` |
+| **direct** | Companies with their own VPN (WireGuard, OpenVPN, FortiClient…) or a local network only | no | `--mode direct --listen 10.8.0.1` |
 
-Opcje dodatkowe:
-- `--allow-from 10.8.0.0/24` – API sejfów dostępne tylko z tej sieci (np. podsieć VPN firmy),
-- `--admin-from 10.8.0.0/24` – panel administratora tylko z tej sieci (domyślnie: sieci prywatne / VPN / Tailscale),
-- `--cert plik.crt --key plik.key` – w trybie `direct` własny certyfikat firmy zamiast samopodpisanego.
+Additional options:
+- `--allow-from 10.8.0.0/24` – the vault API is reachable only from this network (for example, your VPN subnet).
+- `--admin-from 10.8.0.0/24` – the admin panel is reachable only from this network (default: private, VPN and
+  Tailscale networks).
+- `--cert server.crt --key server.key` – in `direct` mode, use your company certificate instead of a self-signed one.
 
-Ponowne uruchomienie instalatora (np. ze zmianą trybu) aktualizuje serwer – dane, konta i tokeny zostają.
+Running the installer again (for example, to change the mode) upgrades the server in place. Data, accounts and
+tokens are kept.
 
-### Tryby Tailscale (dla Ciebie)
+### Tailscale modes
 
-Wymagania: Tailscale na serwerze (`curl -fsSL https://tailscale.com/install.sh | sh && sudo tailscale up`)
-oraz w panelu https://login.tailscale.com/admin/dns włączone **MagicDNS** i **HTTPS Certificates**.
+Requirements: Tailscale on the server (`curl -fsSL https://tailscale.com/install.sh | sh && sudo tailscale up`) and
+**MagicDNS** plus **HTTPS Certificates** enabled at https://login.tailscale.com/admin/dns.
 
-- `--mode tailscale` – adres `https://<serwer>.<sieć>.ts.net`, dostępny tylko z urządzeń w Twojej sieci Tailscale.
-  W aplikacji przycisk **🔍 Tailscale** sam znajdzie serwer.
-- `--mode tailscale-funnel` – ten sam adres, ale dostępny także z internetu (komputer w pracy nie potrzebuje Tailscale).
-  Panel administratora pozostaje dostępny wyłącznie z Twojej sieci Tailscale.
+- `--mode tailscale` – address `https://<server>.<tailnet>.ts.net`, reachable only from devices on your Tailscale
+  network. In the app, the **🔍 Tailscale** button finds the server automatically.
+- `--mode tailscale-funnel` – the same address, also reachable from the internet, so work computers don't need
+  Tailscale. The admin panel stays reachable only from your Tailscale network.
 
-### Tryb direct (firmowy VPN / sieć lokalna)
+### Direct mode (company VPN or local network)
 
-Serwer nasłuchuje na adresie wewnętrznym (np. adresie serwera w sieci WireGuard) z certyfikatem TLS.
-Bez własnego certyfikatu instalator generuje certyfikat samopodpisany i wypisuje jego **odcisk SHA-256**.
-Przy pierwszym połączeniu aplikacja pokaże ten odcisk do porównania i zapamięta certyfikat
-(późniejsza podmiana certyfikatu zostanie wykryta). Odcisk widać też w panelu administratora.
+The server listens on an internal address (for example, the server's WireGuard address) with a TLS certificate.
+Without your own certificate, the installer generates a self-signed one and prints its **SHA-256 fingerprint**.
+On first connection the app shows this fingerprint for comparison and remembers the certificate, so a later
+certificate swap is detected. The fingerprint is also shown in the admin panel.
 
 ---
 
-## 2. Panel administratora (WEB)
+## 2. Admin panel
 
-Adres: `<adres serwera>/admin` – instalator wypisuje dokładny adres i **jednorazowy token konfiguracyjny**.
+Address: `<server address>/admin`. The installer prints the exact address and a **one-time setup token**.
 
-1. Otwórz panel, wpisz token, ustaw login i hasło administratora (min. 12 znaków).
-2. Zeskanuj kod QR w aplikacji uwierzytelniającej (Google/Microsoft Authenticator, Aegis…) – logowanie do panelu
-   zawsze wymaga kodu 2FA.
-3. W panelu:
-   - **Użytkownicy → Nowy użytkownik** – tworzy konto i od razu pokazuje **kod aktywacyjny** (np. `K7QM-4XTP-9HRW`),
-   - **Zarządzaj** – kolejne kody (każde urządzenie osobno), lista urządzeń z możliwością odcięcia,
-     blokada konta (natychmiast odcina wszystkie urządzenia), usunięcie konta z sejfem,
-   - **Dziennik zdarzeń** – logowania, aktywacje urządzeń, zapisy sejfów, nieudane próby.
+1. Open the panel, enter the token, and set the administrator login and password (at least 12 characters).
+2. Scan the QR code with an authenticator app (Google or Microsoft Authenticator, Aegis…). Signing in to the panel
+   always requires a 2FA code.
+3. Create users: **Użytkownicy → Nowy użytkownik** (Users → New user). The panel immediately shows an
+   **activation code** (for example, `K7QM-4XTP-9HRW`) to give to the employee.
 
-Kod aktywacyjny jest jednorazowy i ważny 24 h (zmienisz to w **Ustawieniach**).
+Activation codes are one-time and valid for 24 hours (change this in **Ustawienia**, Settings). Each device
+needs its own code.
 
-### Pozostałe sekcje panelu
+### Panel sections
 
-| Sekcja | Co zawiera |
+| Section | What it contains |
 |---|---|
-| **Użytkownicy** | konta, urządzenia, kody aktywacyjne (także wysyłka e-mailem), historia wersji sejfu z przywracaniem, reset 2FA, blokada/usunięcie, **tryb awaryjny** – odcięcie wszystkich urządzeń jednym przyciskiem |
-| **Raport bezpieczeństwa** | wynik audytu sejfu każdego użytkownika (wycieki, powtórzone i słabe hasła, brak 2FA) – serwer dostaje **wyłącznie liczby**, nigdy hasła ani nazwy kont |
-| **Stan serwera** | wersja, czas działania, miejsce na dysku, aktywne urządzenia, wykres synchronizacji, informacja o nowej wersji na GitHubie |
-| **Kopie** | kopia całego serwera na żądanie i codziennie o wybranej godzinie, rotacja, pobieranie archiwum |
-| **Dziennik** | filtry (typ zdarzenia, tekst, zakres dat) i eksport do CSV |
-| **Ustawienia** | ogólne, **polityki bezpieczeństwa** wymuszane w aplikacjach, powiadomienia (e-mail SMTP, Teams, Slack, Discord, ntfy, dowolny webhook), nazwa i logo firmy, aktualizacje |
-| **Administratorzy** | zaproszenia (jednorazowy link) z rolą *Administrator* albo *Pomoc techniczna* (tylko podgląd i kody aktywacyjne) |
+| **Użytkownicy** (Users) | Accounts, devices and activation codes (also sent by e-mail); vault version history with restore; 2FA reset; account block or deletion; **emergency mode**, which cuts off all devices with one button. The user card also has **password reset** and **employee offboarding**. |
+| **Raport** (Reports) | Each user's vault audit score (breached, reused and weak passwords, missing 2FA). The server receives **numbers only**, never passwords or account names. PDF reports and compliance documents. |
+| **Stan serwera** (Server status) | Version, uptime, disk space, active devices, sync chart, update information. |
+| **Kopie** (Backups) | Full server backup on demand and daily at a chosen time, rotation, archive download. |
+| **Dziennik** (Audit log) | Sign-ins, device activations, vault saves, failed attempts. Filters by event type, text and date, and CSV export. |
+| **Ustawienia** (Settings) | General settings, **security policies**, account recovery, administrator notifications (SMTP e-mail, Teams, Slack, Discord, ntfy or any webhook), company name and logo, updates. |
+| **Administratorzy** (Administrators) | Invitations (one-time link) with the role *Administrator* or *Pomoc techniczna* (Helpdesk: view only, plus activation codes for new accounts). |
 
-**Polityki bezpieczeństwa** (aplikacje stosują je w ciągu ~30 s): maksymalny czas automatycznej blokady i przechowywania
-hasła w schowku, minimalna siła hasła głównego (słabsze trzeba zmienić przy odblokowaniu), maksymalny czas pracy bez
-połączenia z serwerem, limit urządzeń na osobę, zakaz własnych kopii (USB / prywatne chmury), raporty bezpieczeństwa
-oraz **2FA użytkownika przy dodawaniu urządzeń** (konfigurowane przy pierwszym urządzeniu).
+### Security policies
 
-**Przywrócenie całego serwera z kopii** (usługa zatrzymana; poprzednie dane trafiają do `/var/lib/keystead/.before-restore-…`):
+Apps apply policies within about 30 seconds:
+- maximum auto-lock time and how long passwords stay in the clipboard;
+- minimum master password strength (weaker passwords must be changed at the next unlock);
+- maximum time working without a connection to the server;
+- device limit per person;
+- ban on private backups (USB, personal cloud);
+- security reports sent from the apps;
+- user 2FA when adding a new device (set up with the first device);
+- Windows Hello (and how often the master password is required), Autotype, attachments (size and storage limits,
+  or disabled completely).
+
+### Attachments
+
+Attachments (scans, licences, keys) are encrypted in the app with a separate key stored inside the vault.
+The server keeps only encrypted files in `/var/lib/keystead/users/<login>/attachments`.
+
+### Panel protection
+
+The panel is reachable only from networks in `KS_ADMIN_ALLOWED_NETWORKS`, and never from internet traffic coming in
+through Tailscale Funnel or Cloudflare. Other protections: Argon2id passwords plus mandatory 2FA, a lockout after
+5 failed attempts, sessions that expire after 30 minutes of inactivity, CSRF protection, and no JavaScript with
+a strict Content Security Policy.
+
+**Lost the phone with your 2FA app?** Run `sudo keystead-admin reset-admin`, then `sudo keystead-admin setup-token`.
+
+### Restoring the whole server from a backup
+
+Stop the service first. Previous data is moved to `/var/lib/keystead/.before-restore-…`.
+
 ```bash
 sudo systemctl stop keystead
-sudo keystead-admin restore-backup /var/lib/keystead/backups/keystead-backup-RRRRMMDD-GGMMSS.tar.gz
+sudo keystead-admin restore-backup /var/lib/keystead/backups/keystead-backup-YYYYMMDD-HHMMSS.tar.gz
 sudo systemctl start keystead
 ```
 
-**Zabezpieczenia panelu:** dostępny tylko z sieci z `KS_ADMIN_ALLOWED_NETWORKS` i nigdy dla ruchu z internetu
-przychodzącego przez Tailscale Funnel / Cloudflare; hasło Argon2id + obowiązkowe 2FA; blokada po 5 nieudanych
-próbach; sesja wygasa po 30 min bezczynności; ochrona CSRF; brak JavaScriptu i restrykcyjna polityka CSP.
-
-**Utrata telefonu z 2FA:** `sudo keystead-admin reset-admin`, potem `sudo keystead-admin setup-token`.
-
-### Odzyskiwanie dostępu (pracownik zapomniał hasła głównego)
-
-1. W aplikacji KeyStead Manager administrator wybiera **Ustawienia → Odzyskiwanie dostępu → Narzędzia administratora →
-   Utwórz klucz odzyskiwania firmy**. Plik klucza prywatnego (zabezpieczony hasłem) zostaje u administratora – nigdy na serwerze.
-2. Klucz publiczny wkleja w panelu: **Ustawienia → Odzyskiwanie dostępu (firma)** i włącza opcję.
-   Aplikacje użytkowników dodają klucz przy synchronizacji (użytkownik widzi jego odcisk; zmiana klucza wymaga jego zgody).
-3. Odzyskanie: karta użytkownika → **Pobierz pakiet odzyskiwania** → w aplikacji „Odzyskaj dostęp użytkownika”
-   (pakiet + plik klucza + hasło) → **Wgraj wynik** w panelu → przekaż użytkownikowi hasło tymczasowe.
-   Przy odblokowaniu aplikacja wymusi ustawienie własnego hasła.
-
-**Reset hasła z panelu (od 1.6.0):** w **Ustawienia → Odzyskiwanie dostępu** można zapisać klucz firmy na serwerze,
-zaszyfrowany **hasłem działu IT** (wygenerować nowy albo wgrać istniejący plik `.ksorgkey`). Wtedy na karcie użytkownika
-wystarczy podać hasło IT i kliknąć **Resetuj hasło główne** – panel pokaże hasło tymczasowe, a aplikacja przy logowaniu
-wymusi jego zmianę. Wygodniej, ale kto przejmie serwer i pozna hasło IT, może otworzyć sejfy: hasło IT musi być długie
-i znane tylko działowi IT. 5 błędnych haseł IT blokuje reset na 15 minut. Resetować da się sejfy, które zawierają już
-klucz firmy – karta użytkownika pokazuje, czy tak jest.
-
-Użytkownicy mogą też utworzyć **osobisty kod odzyskiwania** (Ustawienia w aplikacji) i odzyskać dostęp sami
-(„Nie pamiętam hasła” na ekranie logowania). Obie funkcje wymagają aplikacji 1.2+ na wszystkich urządzeniach.
-
-### Załączniki i raport PDF
-
-- **Załączniki** (skany, licencje, klucze) są szyfrowane w aplikacji osobnym kluczem zapisanym w sejfie –
-  serwer przechowuje tylko zaszyfrowane pliki (`/var/lib/keystead/users/<login>/attachments`). Limity rozmiaru
-  i miejsca na osobę ustawisz w **politykach**; można też całkowicie wyłączyć załączniki.
-- **Raporty → Pobierz raport PDF**: średni wynik, trend z ostatnich 90 dni (serwer zapisuje codzienne podsumowanie),
-  lista użytkowników z liczbami wycieków / słabych / powtórzonych haseł i stanem 2FA. Wyłącznie liczby – bez haseł.
-- Nowe polityki: Windows Hello (i co ile dni hasło główne), Autotype, załączniki.
-
-### Aktualizacja z panelu
-
-**Stan serwera → Aktualizacja i historia wersji.** Gdy na GitHubie pojawi się nowe wydanie, panel pokazuje przycisk
-**Zaktualizuj do X.Y.Z** i postęp: pobieranie → weryfikacja podpisu → kopia danych → instalacja → restart → kontrola działania.
-
-- Panel (usługa bez uprawnień) tylko zapisuje prośbę; instaluje osobna usługa `keystead-updater` (root), uruchamiana przez systemd.
-- Instalowane są **wyłącznie wydania podpisane kluczem wydawcy** (`/etc/keystead/release-signing.pub`, `ssh-keygen -Y verify`)
-  – podmienione lub niepodpisane pliki są odrzucane, zanim cokolwiek zostanie zmienione.
-- Każda wersja ma własny katalog `/opt/keystead/releases/<wersja>`, a `/opt/keystead/current` wskazuje bieżącą.
-  Jeśli nowa wersja nie odpowiada po restarcie, serwer **sam wraca do poprzedniej**. Przechowywane są 3 ostatnie wersje,
-  a przycisk **Przywróć poprzednią wersję** cofa aktualizację ręcznie.
-- Podgląd z terminala: `sudo sh -c 'cd /opt/keystead/current && venv/bin/python -m server.updater status'`
-  (zawsze z katalogu programu – Python uruchomiony z `-m` wczytuje moduły z bieżącego katalogu),
-  logi: `journalctl -u keystead-updater`.
-
-Dla wydawcy (komputer z kluczem prywatnym): `python tools/release.py init-key` (jednorazowo),
-następnie po podniesieniu `SERVER_VERSION` w `server/__init__.py`: `python tools/release.py X.Y.Z --notes "Co nowego"`.
+Keep copies of backups **off the server** as well, for example by downloading the archive from **Kopie**.
 
 ---
 
-## 3. Po stronie użytkownika
+## 3. Account recovery
 
-Aplikację (instalator Windows) użytkownik pobiera ze stałego linku serwera **`https://<adres-serwera>/download`** –
-podawanego przy kodach aktywacyjnych i w e-mailach. Link prowadzi do najnowszego instalatora z GitHuba albo pod adres
-ustawiony w panelu (**Ustawienia → Ogólne → Adres instalatora aplikacji**). Aplikacja sama aktualizuje się później
-do nowych, podpisanych wersji.
+For employees who forgot their master password. There are two ways.
 
-W aplikacji: ekran logowania → zakładka **🌐 Serwer**:
-1. adres serwera (lub **🔍 Tailscale**, aby wykryć go automatycznie),
-2. kod aktywacyjny od administratora,
-3. hasło główne sejfu.
+### A. Recovery with the company key file (most secure)
 
-Przy pierwszym połączeniu aplikacja zaproponuje wysłanie istniejącego sejfu albo utworzenie nowego.
-Na kolejnych urządzeniach użytkownik używa nowego kodu i tego samego hasła głównego.
-Firmowe proxy jest wykrywane automatycznie z ustawień systemu.
+1. In KeyStead Manager, the administrator opens **Ustawienia → Odzyskiwanie dostępu → Narzędzia administratora →
+   Utwórz klucz odzyskiwania firmy** (Settings → Account recovery → Administrator tools → Create company recovery
+   key). The private key file (password-protected) stays with the administrator and never goes to the server.
+2. Paste the public key in the panel under **Ustawienia → Odzyskiwanie dostępu (firma)** (Settings → Company
+   recovery) and turn the option on. Users' apps add the key during sync. Users see its fingerprint, and changing
+   the key requires their consent.
+3. To recover a user: on the user card, click **Pobierz pakiet odzyskiwania** (Download recovery package). In the
+   app, choose "Odzyskaj dostęp użytkownika" (Recover user access) and provide the package, key file and key
+   password. Then upload the result in the panel (**Wgraj wynik**) and give the user the temporary password.
+   The app makes them set their own password at the next unlock.
+
+### B. One-click reset from the panel
+
+Under **Ustawienia → Odzyskiwanie dostępu**, you can store the company key on the server, encrypted with an
+**IT department password**. Generate a new key, or upload an existing `.ksorgkey` file. After that, on the user
+card, enter the IT password and click **Resetuj hasło główne** (Reset master password). The panel shows
+a temporary password, and the app makes the user change it at the next sign-in.
+
+> **Trade-off:** this is more convenient, but anyone who takes over the server *and* learns the IT password can open
+> vaults. Use a long IT password known only to the IT department. After 5 wrong IT passwords, reset is blocked for
+> 15 minutes, and every use is recorded in the audit log.
+
+Reset works only for vaults that already contain the company key; the user card shows whether a vault does.
+
+Users can also create a **personal recovery code** in the app and recover access themselves with
+"Nie pamiętam hasła" (I forgot my password) on the login screen.
 
 ---
 
-## 4. Polecenia administracyjne (terminal serwera)
+## 4. Employee offboarding
 
-| Polecenie | Opis |
+On the user card, open the **👋 Odejście pracownika** (Employee leaving) section and type the user's login to confirm.
+KeyStead then does the following:
+
+1. **Blocks the account** and **revokes all devices** immediately.
+2. Builds a **checklist of accounts** whose passwords the employee knew. It shows only the title, website and
+   username, **never passwords**. Mark each item as changed or skipped. The checklist is deleted from the server
+   when you finish the process.
+3. Optionally **hands the employee's entries and attachments over to a successor's vault**, in the category
+   "Przekazane: <name>" (Handed over: <name>).
+
+Steps 2 and 3 need the **IT department password** from [method B](#b-one-click-reset-from-the-panel). The
+employee's vault is opened only in server memory, with the company key. Without the IT password, the account is
+still blocked and its devices revoked, and you fill in the checklist by hand.
+
+---
+
+## 5. Reports and compliance
+
+Under **Raport** (Reports):
+- **PDF security report:** average score, 90-day trend (the server stores a daily summary), and a per-user list of
+  breached, weak and reused passwords and 2FA status. Numbers only, never passwords.
+- **📄 Raport zgodności (PDF)** (Compliance report): evidence for **NIS2 / the Polish National Cybersecurity System
+  Act (KSC)** and **GDPR (RODO)**. It covers policies, accounts and permissions, 2FA, password hygiene, backups,
+  encryption, updates and the audit log, with automatic recommendations that refer to the measures in Article 21
+  of NIS2.
+- **📝 Polityka zarządzania hasłami (PDF)** (Password management policy): a ready-made internal policy document
+  filled in with the values from your settings, ready to approve and sign.
+
+---
+
+## 6. Updates
+
+Go to **Stan serwera → Aktualizacja i historia wersji** (Server status → Update and version history). When a new
+release is published, the panel shows **Zaktualizuj do X.Y.Z** (Update to X.Y.Z) and its progress: download →
+signature check → data backup → install → restart → health check.
+
+- The panel service has no privileges and only files a request. A separate `keystead-updater` service, started by
+  systemd, performs the installation.
+- **Only releases signed with the publisher's key are installed** (`/etc/keystead/release-signing.pub`, checked with
+  `ssh-keygen -Y verify`). Tampered or unsigned files are rejected before anything changes.
+- Each version lives in its own directory, `/opt/keystead/releases/<version>`, and `/opt/keystead/current` points to
+  the active one. If the new version doesn't respond after the restart, the server **rolls back automatically**.
+  The last 3 versions are kept, and **Przywróć poprzednią wersję** (Restore previous version) undoes an update by hand.
+- Status from the terminal: `sudo sh -c 'cd /opt/keystead/current && venv/bin/python -m server.updater status'`.
+  Logs: `journalctl -u keystead-updater`.
+
+---
+
+## 7. For users
+
+Users download the Windows app from the server's permanent link, **`https://<server address>/download`**. This link
+is included with activation codes and e-mails. It points to the latest installer on GitHub, or to an address you set
+in **Ustawienia → Ogólne → Adres instalatora aplikacji** (Settings → General → App installer address). After that,
+the app updates itself to new signed versions.
+
+In the app, on the login screen, the user opens the **🌐 Serwer** (Server) tab and enters:
+1. the server address (or clicks **🔍 Tailscale** to detect it),
+2. the activation code from the administrator,
+3. their master password.
+
+On first connection, the app offers to upload an existing vault or create a new one. On additional devices, the
+user needs a new code and the same master password. Corporate proxies are detected automatically from Windows settings.
+
+---
+
+## 8. Server commands
+
+| Command | Description |
 |---|---|
-| `sudo keystead-admin list-users` | użytkownicy i liczba urządzeń |
-| `sudo keystead-admin add-user jan.kowalski --name "Jan Kowalski"` | nowe konto + kod aktywacyjny |
-| `sudo keystead-admin enroll-code jan.kowalski` | nowy kod aktywacyjny |
-| `sudo keystead-admin list-devices` / `revoke-device <id>` | urządzenia / odcięcie urządzenia |
-| `sudo keystead-admin status --user jan.kowalski` | stan sejfu użytkownika |
-| `sudo keystead-admin setup-token` / `reset-admin` | konfiguracja / reset konta administratora |
-| `journalctl -u keystead -f` | logi serwera |
+| `sudo keystead-admin list-users` | Users and their device count |
+| `sudo keystead-admin add-user jan.kowalski --name "Jan Kowalski"` | New account plus activation code |
+| `sudo keystead-admin enroll-code jan.kowalski` | New activation code |
+| `sudo keystead-admin list-devices` / `revoke-device <id>` | List devices / cut off a device |
+| `sudo keystead-admin status --user jan.kowalski` | State of a user's vault |
+| `sudo keystead-admin setup-token` / `reset-admin` | Admin account setup / reset |
+| `journalctl -u keystead -f` | Server logs |
 
-Konfiguracja: `/etc/keystead/server.env`, po zmianie `sudo systemctl restart keystead`.
-Kopia zapasowa serwera: archiwum katalogu `/var/lib/keystead` (wyłącznie zaszyfrowane sejfy i skróty tokenów).
+Configuration: `/etc/keystead/server.env`; after changing it, run `sudo systemctl restart keystead`.
+Server data lives in `/var/lib/keystead` (encrypted vaults and token hashes only).
 
 ---
 
-## 5. Bezpieczeństwo – podsumowanie
+## 9. Security summary
 
-- Zero-knowledge: serwer przechowuje tylko zaszyfrowane pliki; każdy użytkownik ma osobny sejf.
-- Tokeny urządzeń: 256 bitów, na serwerze tylko skrót SHA-256; w aplikacji Windows szyfrowane DPAPI.
-- Kody aktywacyjne: jednorazowe, z terminem ważności, przechowywane jako skrót.
-- Ograniczanie prób: logowanie urządzeń (20 prób / 10 min), kody aktywacyjne (10 prób / 10 min), panel (5 prób / 15 min).
-- Listy dozwolonych sieci dla API i panelu; adres klienta za serwerem pośredniczącym odczytywany tylko od zaufanych pośredników.
-- Usługa systemd z utwardzeniem (brak dostępu do reszty systemu poza katalogiem danych).
+- **Zero-knowledge:** the server stores only encrypted files, and each user has a separate vault.
+- **Device tokens:** 256-bit, stored on the server only as SHA-256 hashes, and protected with DPAPI in the Windows app.
+- **Activation codes:** one-time, time-limited, stored as hashes.
+- **Rate limits:** device sign-in (20 attempts per 10 minutes), activation codes (10 per 10 minutes), admin panel
+  (5 per 15 minutes).
+- **Network allow-lists** for the API and the panel. Behind a reverse proxy, the client address is trusted only
+  from configured proxies.
+- **Hardened systemd service** with no access to the rest of the system outside its data directory.
+- **Signed updates** with automatic rollback.
 
+---
 
-## Wersje, autor i licencja
+## Versions, author and licence
 
-- **Numeracja wersji:** pierwsze dwie liczby są wspólne dla aplikacji i serwera (nowe funkcje wydawane razem),
-  ostatnia oznacza poprawki tylko w jednej części. Aplikacja **2.0.x** współpracuje z serwerem **2.0.x** i nowszym.
-- **Autor:** Łukasz Kubieniec – [github.com/facior](https://github.com/facior)
-- **Licencja:** © 2026 Łukasz Kubieniec. Wszelkie prawa zastrzeżone. Oprogramowanie zastrzeżone – udostępnienie kodu
-  nie oznacza udzielenia licencji; szczegóły w pliku [LICENSE](../LICENSE).
+- **Versions:** the first two numbers are shared by the app and the server; the last one is for fixes in one part
+  only. App **2.0.x** works with server **2.0.x** and newer.
+- **Author:** Łukasz Kubieniec – [github.com/facior](https://github.com/facior)
+- **Licence:** © 2026 Łukasz Kubieniec. All rights reserved. This is proprietary software. Publishing the source code
+  does not grant a licence; see [LICENSE](../LICENSE).
